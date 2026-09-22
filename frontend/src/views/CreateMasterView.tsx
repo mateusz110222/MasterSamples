@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { fisApi, FIS1_API, FIS2_API } from '../api/fisApi';
-import { masterApi, CreateMasterPayload } from '../api/masterApi';
+import { fisApi } from '../api/fisApi';
+import { masterApi, CreateMasterPayload, FisTarget } from '../api/masterApi';
 import type { MasterUnit } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
@@ -36,13 +36,21 @@ export const CreateMasterView: React.FC = () => {
     const [status, setStatus] = useState<'GOOD' | 'BAD'>('GOOD');
     const [maxCounter, setMaxCounter] = useState<number>(1000);
     const [maxErrors, setMaxErrors] = useState<number>(50);
-    const [selectedFis, setSelectedFis] = useState<'FIS1' | 'FIS2'>(
-        () => (localStorage.getItem('selectedFis') as 'FIS1' | 'FIS2') ?? 'FIS1'
-    );
+    const [selectedFis, setSelectedFis] = useState<FisTarget>(() => {
+        try {
+            return window.localStorage.getItem('masterSamples.selectedFis') === 'FIS2' ? 'FIS2' : 'FIS1';
+        } catch {
+            return 'FIS1';
+        }
+    });
 
-    const handleFisChange = (fis: 'FIS1' | 'FIS2') => {
+    const handleFisChange = (fis: FisTarget) => {
         setSelectedFis(fis);
-        localStorage.setItem('selectedFis', fis);
+        try {
+            window.localStorage.setItem('masterSamples.selectedFis', fis);
+        } catch {
+            // Selection remains active for the current session when storage is unavailable.
+        }
     };
 
     // Existing unit update comparison modal
@@ -81,10 +89,9 @@ export const CreateMasterView: React.FC = () => {
     }, [processTags, multiSearchQuery]);
 
     const createMutation = useMutation({
-        mutationFn: ({ payload, apiUrl }: { payload: CreateMasterPayload; apiUrl: string }) =>
-            masterApi.createMaster(payload, apiUrl),
+        mutationFn: (payload: CreateMasterPayload) => masterApi.createMaster(payload),
         onSuccess: (res, variables) => {
-            if (res.data?.exists && !variables.payload.forceUpdate) {
+            if (res.data?.exists && !variables.forceUpdate) {
                 setExistingModalData({
                     oldData: res.data.oldData ?? {},
                     newData: res.data.newData ?? {},
@@ -128,18 +135,14 @@ export const CreateMasterView: React.FC = () => {
             return;
         }
 
-        const apiUrl = selectedFis === 'FIS2' ? FIS2_API : FIS1_API;
         createMutation.mutate({
-            payload: {
-                unit: sn,
-                process: proc,
-                status,
-                maxCounter: Number(maxCounter) || 1000,
-                maxErrors: Number(maxErrors) || 50,
-                fis: selectedFis,
-                forceUpdate
-            },
-            apiUrl
+            unit: sn,
+            process: proc,
+            status,
+            maxCounter: Number(maxCounter) || 1000,
+            maxErrors: Number(maxErrors) || 50,
+            fis: selectedFis,
+            forceUpdate
         });
     };
 
@@ -163,7 +166,7 @@ export const CreateMasterView: React.FC = () => {
         <div className="max-w-2xl mx-auto space-y-6">
             <ErrorBanner message={processTagsError ? getErrorMessage(processTagsError, 'Nie udało się pobrać listy procesów.') : null} />
             {/* Top Navigation Back */}
-            <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center justify-between gap-3">
                 <button
                     type="button"
                     onClick={() => navigate('/')}
@@ -173,74 +176,67 @@ export const CreateMasterView: React.FC = () => {
                     <span>{t.backToDashboard}</span>
                 </button>
 
-                <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {/* FIS Selector Pill */}
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-brand-text-muted">{t.fisLabel}:</span>
-                        <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md">
-                            <button
-                                type="button"
-                                onClick={() => handleFisChange('FIS1')}
-                                className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                    selectedFis === 'FIS1'
-                                        ? 'bg-brand-accent text-brand-text shadow-xs'
-                                        : 'text-brand-text-muted hover:text-brand-text'
-                                }`}
-                            >
-                                FIS 1
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleFisChange('FIS2')}
-                                className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                    selectedFis === 'FIS2'
-                                        ? 'bg-brand-accent text-brand-text shadow-xs'
-                                        : 'text-brand-text-muted hover:text-brand-text'
-                                }`}
-                            >
-                                FIS 2
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Mode Switcher Pill */}
-                    <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md">
-                        <button
-                            type="button"
-                            onClick={() => setMode('single')}
-                            className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                mode === 'single'
-                                    ? 'bg-brand-accent text-brand-text shadow-xs'
-                                    : 'text-brand-text-muted hover:text-brand-text'
-                            }`}
-                        >
-                            {t.singleProcessMode}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setMode('multiple')}
-                            className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                mode === 'multiple'
-                                    ? 'bg-brand-accent text-brand-text shadow-xs'
-                                    : 'text-brand-text-muted hover:text-brand-text'
-                            }`}
-                        >
-                            {t.multiProcessMode}
-                        </button>
-                    </div>
+                {/* Mode Switcher Pill */}
+                <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md" role="group" aria-label={t.processModeLabel}>
+                    <button
+                        type="button"
+                        onClick={() => setMode('single')}
+                        aria-pressed={mode === 'single'}
+                        className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            mode === 'single'
+                                ? 'bg-brand-accent text-brand-text shadow-xs'
+                                : 'text-brand-text-muted hover:text-brand-text'
+                        }`}
+                    >
+                        {t.singleProcessMode}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMode('multiple')}
+                        aria-pressed={mode === 'multiple'}
+                        className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            mode === 'multiple'
+                                ? 'bg-brand-accent text-brand-text shadow-xs'
+                                : 'text-brand-text-muted hover:text-brand-text'
+                        }`}
+                    >
+                        {t.multiProcessMode}
+                    </button>
                 </div>
             </div>
 
             {/* Main Card */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6">
-                <div className="border-b border-brand-border/70 pb-4">
-                    <h2 className="text-xl font-bold text-brand-text tracking-tight flex items-center gap-2.5">
-                        <PlusCircle className="text-brand-accent transition-transform duration-300 group-hover:rotate-90" size={22} />
-                        <span>{t.createTitle}</span>
-                    </h2>
-                    <p className="text-xs text-brand-text-muted mt-1">
-                        {mode === 'single' ? t.createSingleSub : t.createMultiSub}
-                    </p>
+                <div className="border-b border-brand-border/70 pb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 className="text-xl font-bold text-brand-text tracking-tight flex items-center gap-2.5">
+                            <PlusCircle className="text-brand-accent transition-transform duration-300 group-hover:rotate-90" size={22} />
+                            <span>{t.createTitle}</span>
+                        </h2>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 sm:justify-end sm:shrink-0">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand-text-muted">
+                            {t.fisTargetLabel}
+                        </span>
+                        <div className="bg-brand-bg border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md" role="group" aria-label={t.fisTargetLabel}>
+                            {(['FIS1', 'FIS2'] as const).map((fis) => (
+                                <button
+                                    key={fis}
+                                    type="button"
+                                    onClick={() => handleFisChange(fis)}
+                                    aria-pressed={selectedFis === fis}
+                                    className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        selectedFis === fis
+                                            ? 'bg-brand-accent text-brand-text shadow-xs'
+                                            : 'text-brand-text-muted hover:text-brand-text'
+                                    }`}
+                                >
+                                    {fis === 'FIS1' ? 'FIS 1' : 'FIS 2'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
 
                 {/* Notification Alert */}
@@ -292,7 +288,7 @@ export const CreateMasterView: React.FC = () => {
                             ) : (
                                 <p className="text-[11px] text-emerald-400/90 font-sans flex items-center gap-1 leading-none">
                                     <Check size={12} />
-                                    <span>Gotowy do rejestracji w FIS jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
+                                    <span>Gotowy do rejestracji w {selectedFis === 'FIS1' ? 'FIS 1' : 'FIS 2'} jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
                                 </p>
                             )}
                         </div>
@@ -577,6 +573,11 @@ export const CreateMasterView: React.FC = () => {
                                 <div>Nowa wartość</div>
                             </div>
                             <div className="divide-y divide-brand-border pt-2 space-y-2">
+                                <div className="grid grid-cols-3 gap-2 pt-2">
+                                    <span className="text-brand-text-muted">FIS</span>
+                                    <span className="text-rose-400 font-semibold">{existingModalData.oldData.FIS}</span>
+                                    <span className="text-emerald-400 font-semibold">{existingModalData.newData.FIS}</span>
+                                </div>
                                 <div className="grid grid-cols-3 gap-2 pt-2">
                                     <span className="text-brand-text-muted">Proces</span>
                                     <span className="text-rose-400 font-semibold break-all">{existingModalData.oldData.process}</span>

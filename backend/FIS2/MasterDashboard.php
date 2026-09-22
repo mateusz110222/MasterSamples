@@ -2,7 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Master Samples Dashboard Backend API
+ * Master Samples Dashboard Backend API — FIS 2 deployment copy
+ * Production host: plblofis2.global.borgwarner.net
  * Production path: /custom/matz/php/MasterDashboard.php
  */
 
@@ -721,7 +722,7 @@ try {
                 sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
             }
 
-            $fisRaw = strtoupper(trim((string)($input['fis'] ?? 'FIS1')));
+            $fisRaw = strtoupper(trim((string)($input['fis'] ?? 'FIS2')));
             if (!in_array($fisRaw, ['FIS1', 'FIS2'], true)) {
                 sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
@@ -1282,3 +1283,5 @@ try {
     }
     sendJsonResponse(false, 'Wewnętrzny błąd serwera', null, 500);
 }
+
+

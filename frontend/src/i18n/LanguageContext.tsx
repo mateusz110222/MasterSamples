@@ -149,7 +149,7 @@ const translations = {
         // Reset modal
         resetModalTitle: 'Reset Liczników Mastera',
         resetModalDesc: 'Wybierz zakres zerowania liczników dla:',
-        resetOptBoth: 'Resetuj Oba Liczniki (Zalecane)',
+        resetOptBoth: 'Resetuj Oba Liczniki',
         resetOptBothSub: 'Wyzeruje zarówno cykle użyć (currentCounter), jak i licznik błędów (errorCounter).',
         resetOptCycles: 'Resetuj Tylko Cykle Użyć',
         resetOptCyclesSub: 'Wyzeruje wyłącznie licznik użyć (currentCounter → 0). Licznik błędów bez zmian.',
@@ -162,13 +162,13 @@ const translations = {
         blockModalWarningHeader: 'Ostrzeżenie o zablokowaniu!',
         activateModalTitle: 'Aktywuj Mastera',
         activateModalHeader: 'Przywrócenie do produkcji',
-        blockModalWarn: 'Zablokowanie mastera (isActive = 2) uniemożliwi resetowanie jego liczników i zablokuje dopuszczenie do procesów produkcyjnych.',
+        blockModalWarn: 'Zablokowanie mastera uniemożliwi resetowanie jego liczników i zablokuje dopuszczenie do procesów produkcyjnych.',
         activateModalWarn: 'Czy na pewno chcesz przywrócić mastera do stanu aktywnego (isActive = 1)?',
 
         // Delete modal
         deleteModalTitle: 'Usuń Mastera z Bazy Danych',
         deleteModalWarning: 'Ostrzeżenie!',
-        deleteModalText: 'zostanie usunięty z tabeli masterUnits. Zdarzenie zostanie zapisane w historii.',
+        deleteModalText: 'zostanie usunięty z przypisanego systemu FIS oraz z tabeli masterUnits. Zdarzenie zostanie zapisane w historii.',
         confirmDelete: 'Trwale Usuń',
 
         // History modal
@@ -180,12 +180,12 @@ const translations = {
 
         // Create Master View
         backToDashboard: 'Powrót do Dashboardu',
+        fisTargetLabel: 'Docelowy serwer FIS',
+        processModeLabel: 'Tryb przypisania procesów',
         singleProcessMode: 'Pojedynczy Proces',
         multiProcessMode: 'Wiele Procesów',
         fisLabel: 'System FIS',
         createTitle: 'Dodaj Master Sample',
-        createSingleSub: 'Tryb pojedynczego procesu — przypisz jednostkę wzorcową do jednego etapu.',
-        createMultiSub: 'Tryb wielu procesów — powiąż jedną jednostkę z wieloma liniami/stacjami.',
         serialNumberLabel: 'Numer Seryjny (Unit / SN)',
         serialNumberPlaceholder: 'Zeskanuj lub wpisz numer SN...',
         processLabel: 'Proces Produkcyjny',
@@ -389,13 +389,13 @@ const translations = {
         blockModalWarningHeader: 'Block Warning!',
         activateModalTitle: 'Activate Master Sample',
         activateModalHeader: 'Restore to Production',
-        blockModalWarn: 'Blocking the master (isActive = 2) prevents counter resets and denies process admission.',
+        blockModalWarn: 'Blocking the master prevents counter resets and denies process admission.',
         activateModalWarn: 'Are you sure you want to reactivate this master sample (isActive = 1)?',
 
         // Delete modal
         deleteModalTitle: 'Delete Master from Database',
         deleteModalWarning: 'Warning!',
-        deleteModalText: 'will be deleted from masterUnits table. An audit record will be logged in history.',
+        deleteModalText: 'will be deleted from its assigned FIS system and from the masterUnits table. An audit record will be logged in history.',
         confirmDelete: 'Permanently Delete',
 
         // History modal
@@ -407,12 +407,12 @@ const translations = {
 
         // Create Master View
         backToDashboard: 'Back to Dashboard',
+        fisTargetLabel: 'Target FIS server',
+        processModeLabel: 'Process assignment mode',
         singleProcessMode: 'Single Process',
         multiProcessMode: 'Multiple Processes',
         fisLabel: 'FIS System',
         createTitle: 'Add Master Sample',
-        createSingleSub: 'Single process mode — bind golden sample to a single station/line.',
-        createMultiSub: 'Multiple processes mode — bind one unit across several production lines/stations.',
         serialNumberLabel: 'Serial Number (Unit / SN)',
         serialNumberPlaceholder: 'Scan or type serial number...',
         processLabel: 'Production Process',

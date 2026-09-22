@@ -23,7 +23,7 @@ interface DashboardModalsProps {
     blockMutation: MutationControl<{ units: string[]; block: boolean }>;
     deleteTarget: MasterUnit | null;
     closeDelete: () => void;
-    deleteMutation: MutationControl<string>;
+    deleteMutation: MutationControl<MasterUnit>;
     historyTarget: MasterUnit | null;
     closeHistory: () => void;
     history: HistoryRecord[];
@@ -98,7 +98,6 @@ export const DashboardModals = ({
             value: 'all' as const,
             label: t.resetOptBoth,
             description: t.resetOptBothSub,
-            recommended: true,
             selectedClass: 'border-indigo-500 bg-gradient-to-r from-indigo-500/25 via-indigo-600/20 to-purple-600/15 ring-2 ring-indigo-500/60 shadow-[0_0_22px_rgba(99,102,241,0.3)] hover:-translate-y-1',
             unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-indigo-400 hover:bg-indigo-950/30 hover:shadow-[0_0_16px_rgba(99,102,241,0.2)] hover:-translate-y-1',
             radioBorder: 'border-indigo-400 bg-indigo-500/20',
@@ -108,7 +107,6 @@ export const DashboardModals = ({
             value: 'cycles' as const,
             label: t.resetOptCycles,
             description: t.resetOptCyclesSub,
-            recommended: false,
             selectedClass: 'border-amber-500 bg-gradient-to-r from-amber-500/25 via-amber-600/20 to-orange-600/15 ring-2 ring-amber-500/60 shadow-[0_0_22px_rgba(245,158,11,0.3)] hover:-translate-y-1',
             unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-amber-400 hover:bg-amber-950/30 hover:shadow-[0_0_16px_rgba(245,158,11,0.2)] hover:-translate-y-1',
             radioBorder: 'border-amber-400 bg-amber-500/20',
@@ -118,7 +116,6 @@ export const DashboardModals = ({
             value: 'errors' as const,
             label: t.resetOptErrors,
             description: t.resetOptErrorsSub,
-            recommended: false,
             selectedClass: 'border-rose-500 bg-gradient-to-r from-rose-500/25 via-rose-600/20 to-pink-600/15 ring-2 ring-rose-500/60 shadow-[0_0_22px_rgba(244,63,94,0.3)] hover:-translate-y-1',
             unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-rose-400 hover:bg-rose-950/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] hover:-translate-y-1',
             radioBorder: 'border-rose-400 bg-rose-500/20',
@@ -181,11 +178,6 @@ export const DashboardModals = ({
                                     <div className="flex-1 pr-2">
                                         <div className="flex items-center gap-2">
                                             <strong className="block text-sm font-bold text-white tracking-tight">{opt.label}</strong>
-                                            {opt.recommended && (
-                                                <span className="rounded-md border border-indigo-500/40 bg-indigo-500/25 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-indigo-200">
-                                                    ZALECANE
-                                                </span>
-                                            )}
                                         </div>
                                         <span className="mt-0.5 block text-xs leading-relaxed text-brand-text-muted/90">{opt.description}</span>
                                     </div>
@@ -260,7 +252,7 @@ export const DashboardModals = ({
                         confirmLabel={deleteMutation.isPending ? t.deleting : t.confirmDelete}
                         pending={deleteMutation.isPending}
                         onCancel={closeDelete}
-                        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.unit)}
+                        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
                         destructive
                         icon={<Trash2 size={16} />}
                     />

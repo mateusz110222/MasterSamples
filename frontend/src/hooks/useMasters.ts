@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { masterApi } from '../api/masterApi';
-import type { ResetType } from '../types';
+import { masterApi, normalizeFisTarget } from '../api/masterApi';
+import type { MasterUnit, ResetType } from '../types';
 
 interface MasterActionCallbacks {
     onResetSuccess: () => void;
@@ -48,7 +48,7 @@ export const useMasterActions = (callbacks: MasterActionCallbacks) => {
     });
 
     const deleteMutation = useMutation({
-        mutationFn: (unit: string) => masterApi.deleteMaster(unit),
+        mutationFn: (master: MasterUnit) => masterApi.deleteMaster(master.unit, normalizeFisTarget(master.FIS)),
         onMutate: callbacks.onMutate,
         onSuccess: async () => {
             await refreshMasters();

@@ -86,6 +86,18 @@ Wynik kompilacji znajdzie się w katalogu `frontend/dist/`:
    Zawartość katalogu `frontend/dist/` (plik `index.html` oraz folder `assets/`) skopiuj do katalogu docelowego, np.:
    `/custom/matz/` lub `/cst_auth/masterSamples/`
 
+> `CreateMaster` może być wysyłany do FIS 1 albo FIS 2. Ten sam aktualny plik
+> `backend/MasterDashboard.php` musi być wdrożony na obu hostach pod ścieżką
+> `/custom/matz/php/MasterDashboard.php`. Pozostałe operacje nadal korzystają
+> z backendu hosta, na którym otwarto dashboard.
+>
+> Gotowa kopia dla drugiego serwera znajduje się w
+> `backend/FIS2/MasterDashboard.php`. Na hoście FIS 2 należy wgrać ją jako
+> `/custom/matz/php/MasterDashboard.php`; jej bezpieczna wartość domyślna to `FIS2`.
+> Operacja `DeleteMaster` jest również kierowana do hosta przypisanego w kolumnie
+> `FIS` i przed usunięciem rekordu z bazy wywołuje `Unit::Delete()` z biblioteki
+> `/custom/matz/phpBB/BuildingBlocks.php`.
+
 ---
 
 ## 🗄️ Schemat Bazy Danych (`masterSample`)

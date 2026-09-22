@@ -1,5 +1,18 @@
-import { apiRequest, API_BASE } from './client';
-import { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types';
+import { apiRequest, API_BASE } from './client.ts';
+import type { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types/index.ts';
+
+export type FisTarget = 'FIS1' | 'FIS2';
+
+const CREATE_MASTER_PATH = '/custom/matz/php/MasterDashboard.php';
+
+export function getCreateMasterUrl(fis: FisTarget): string {
+    const hostNumber = fis === 'FIS2' ? '2' : '1';
+    return `http://plblofis${hostNumber}.global.borgwarner.net${CREATE_MASTER_PATH}`;
+}
+
+export function normalizeFisTarget(fis: unknown): FisTarget {
+    return String(fis ?? '').trim().toUpperCase() === 'FIS2' ? 'FIS2' : 'FIS1';
+}
 
 export interface GetMastersFilters {
     status?: string;
@@ -14,7 +27,7 @@ export interface CreateMasterPayload {
     status: 'GOOD' | 'BAD';
     maxCounter: number;
     maxErrors: number;
-    fis?: 'FIS1' | 'FIS2';
+    fis: FisTarget;
     forceUpdate?: boolean;
 }
 
@@ -37,8 +50,8 @@ export const masterApi = {
         return res.data;
     },
 
-    createMaster: async (payload: CreateMasterPayload, apiUrl?: string): Promise<ApiResponse<CreateMasterResult>> => {
-        return apiRequest(apiUrl ?? API_BASE, { job: 'CreateMaster' }, {
+    createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<CreateMasterResult>> => {
+        return apiRequest(getCreateMasterUrl(payload.fis), { job: 'CreateMaster' }, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -67,10 +80,10 @@ export const masterApi = {
         });
     },
 
-    deleteMaster: async (unit: string): Promise<ApiResponse<{ affected_rows: number }>> => {
-        return apiRequest(API_BASE, { job: 'DeleteMaster' }, {
+    deleteMaster: async (unit: string, fis: FisTarget): Promise<ApiResponse<{ affected_rows: number; fis_deleted: boolean }>> => {
+        return apiRequest(getCreateMasterUrl(fis), { job: 'DeleteMaster' }, {
             method: 'POST',
-            body: JSON.stringify({ unit }),
+            body: JSON.stringify({ unit, fis }),
         });
     },
 
