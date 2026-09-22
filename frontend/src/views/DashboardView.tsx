@@ -86,7 +86,6 @@ export const DashboardView: React.FC = () => {
     // Task Preset Counts
     const presetCounts = useMemo(() => {
         let actionRequired = 0;
-        let toReset = 0;
         let cycles80 = 0;
         let errorsExceeded = 0;
         let myProcesses = 0;
@@ -96,17 +95,15 @@ export const DashboardView: React.FC = () => {
             const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
             const errorExceeded = m.errorMaxCounter > 0 && m.errorCounter >= m.errorMaxCounter;
             const cycle80 = m.maxCounter > 0 && (m.currentCounter / m.maxCounter) >= 0.8;
-            const hasErrors = m.errorCounter > 0;
             const isDead = m.isactive === 2;
 
             if (cycleExceeded || errorExceeded || isDead) actionRequired++;
-            if (cycle80 || hasErrors || cycleExceeded || errorExceeded) toReset++;
             if (cycle80) cycles80++;
             if (errorExceeded) errorsExceeded++;
             if (currentUid && m.user?.toLowerCase().includes(currentUid)) myProcesses++;
         });
 
-        return { actionRequired, toReset, cycles80, errorsExceeded, myProcesses };
+        return { actionRequired, cycles80, errorsExceeded, myProcesses };
     }, [masters, user?.uid]);
 
     // Unique process list
@@ -192,7 +189,7 @@ export const DashboardView: React.FC = () => {
     };
 
     return (
-        <div className="space-y-5 animate-page-enter">
+        <div className="space-y-5">
             <ErrorBanner
                 message={actionError ?? (mastersError ? getErrorMessage(mastersError, 'Nie udało się pobrać masterów.') : null)}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
@@ -200,7 +197,7 @@ export const DashboardView: React.FC = () => {
             {/* Top Row: PalletX Stat Cards & Action Buttons */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
                 {/* Stat 1: DOSTĘPNE MASTERY */}
-                <div className="lg:col-span-3 bg-brand-surface border border-brand-border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift animate-slide-up stagger-1">
+                <div className="lg:col-span-3 bg-brand-surface border border-brand-border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift">
                     <span className="text-xs font-bold uppercase tracking-wider text-brand-text-muted">{t.statAvailable}</span>
                     <div className="my-2">
                         <span className="text-3xl sm:text-4xl font-extrabold text-brand-accent font-mono tracking-tight transition-transform duration-300 inline-block">{stats.active}</span>
@@ -218,48 +215,29 @@ export const DashboardView: React.FC = () => {
                             setTaskPreset(prev => prev === 'blocked' ? 'all' : 'blocked');
                         }
                     }}
-                    className={`lg:col-span-3 bg-brand-surface border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift animate-slide-up stagger-2 transition-all select-none ${
+                    className={`lg:col-span-3 bg-brand-surface border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift transition-all select-none ${
                         stats.blocked > 0 ? 'cursor-pointer' : ''
                     } ${
                         taskPreset === 'blocked'
-                            ? 'border-rose-500 ring-2 ring-rose-500/40 bg-rose-950/20'
-                            : stats.blocked > 0
-                                ? 'border-rose-900/50 hover:border-rose-500/60 shadow-rose-950/20'
-                                : 'border-brand-border'
+                            ? 'border-brand-accent/50 bg-brand-accent/5'
+                            : 'border-brand-border'
                     }`}
-                    title={stats.blocked > 0 ? "Kliknij, aby wyświetlić listę zablokowanych maszyn" : undefined}
                 >
                     <div className="flex items-center justify-between">
                         <span className="text-xs font-bold uppercase tracking-wider text-brand-text-muted">{t.statServiceBlocked}</span>
-                        {stats.blocked > 0 && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
-                                <AlertTriangle size={11} />
-                                {t.statUrgentBlocks}
-                            </span>
-                        )}
                     </div>
-                    <div className="my-2 flex items-baseline gap-2">
+                    <div className="my-2">
                         <span className={`text-3xl sm:text-4xl font-extrabold font-mono tracking-tight transition-transform duration-300 inline-block ${stats.blocked > 0 ? 'text-rose-400' : 'text-brand-text-muted'}`}>
                             {stats.blocked}
                         </span>
-                        {stats.blocked > 0 && (
-                            <span className="text-xs text-rose-400 font-semibold font-mono">
-                                ({stats.blocked} {t.statUrgentBlocks})
-                            </span>
-                        )}
                     </div>
-                    <div className="flex items-center justify-between text-xs text-rose-400/90 font-medium">
+                    <div className="flex items-center justify-between text-xs text-brand-text-muted font-medium">
                         <span>{stats.blocked > 0 ? t.statRequiresAttention : t.statNoBlocked}</span>
-                        {stats.blocked > 0 && (
-                            <span className="text-[11px] font-bold underline text-rose-300 hover:text-white transition-colors">
-                                {taskPreset === 'blocked' ? t.taskAll : t.statViewBlocked} →
-                            </span>
-                        )}
                     </div>
                 </div>
 
                 {/* Action Buttons & Search (tight vertical column without large empty gap) */}
-                <div className="lg:col-span-6 flex flex-col justify-center gap-2.5 animate-slide-up stagger-3">
+                <div className="lg:col-span-6 flex flex-col justify-center gap-2.5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         {/* Add Master Button */}
                         {canEdit && (
@@ -311,7 +289,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Filter Bar: all filters and clear button in one row */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex flex-wrap items-end gap-3 animate-slide-up stagger-4">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex flex-wrap items-end gap-3">
                 {/* Filter 1: Process */}
                 <div className="space-y-1">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
@@ -406,7 +384,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Task View Presets Bar (Pills matching requested task-based view) */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-2.5 shadow-md flex items-center gap-2 overflow-x-auto scrollbar-thin animate-slide-up stagger-4">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-2.5 shadow-md flex items-center gap-2 overflow-x-auto scrollbar-thin">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-muted px-2 shrink-0 flex items-center gap-1.5">
                     <Filter size={13} className="text-brand-accent" />
                     <span>Zadania:</span>
@@ -415,7 +393,6 @@ export const DashboardView: React.FC = () => {
                     {[
                         { id: 'all', label: t.taskAll, count: stats.total, color: 'indigo' },
                         { id: 'action_required', label: t.taskActionRequired, count: presetCounts.actionRequired, color: 'rose', icon: AlertTriangle, urgent: presetCounts.actionRequired > 0 },
-                        { id: 'to_reset', label: t.taskToReset, count: presetCounts.toReset, color: 'amber', icon: RotateCcw },
                         { id: 'blocked', label: t.taskBlocked, count: stats.blocked, color: 'red', icon: Ban },
                         { id: 'cycles_80', label: t.taskCycle80, count: presetCounts.cycles80, color: 'orange', icon: Gauge },
                         { id: 'errors_exceeded', label: t.taskErrorExceeded, count: presetCounts.errorsExceeded, color: 'rose', icon: AlertCircle, urgent: presetCounts.errorsExceeded > 0 },
@@ -454,7 +431,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Section Header: Title & Refresh Button */}
-            <div className="flex items-center justify-between pt-1 animate-slide-up stagger-5">
+            <div className="flex items-center justify-between pt-1">
                 <h2 className="text-base sm:text-lg font-bold text-brand-text tracking-wide">{t.sectionRegistryTitle}</h2>
                 <button
                     type="button"
@@ -468,7 +445,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Table with Interactive Sorting and no Checkboxes / Global column */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-5">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-[13px] border-collapse table-auto">
                         <thead>
@@ -506,7 +483,6 @@ export const DashboardView: React.FC = () => {
                                     const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
                                     const errorExceeded = m.errorMaxCounter > 0 && m.errorCounter >= m.errorMaxCounter;
                                     const cycleWarn = !cycleExceeded && m.maxCounter > 0 && (m.currentCounter / m.maxCounter) >= 0.8;
-                                    const hasActionRequired = cycleExceeded || errorExceeded;
                                     const cyclePct = m.maxCounter > 0 ? Math.min(100, Math.round((m.currentCounter / m.maxCounter) * 100)) : 0;
                                     const errorPct = m.errorMaxCounter > 0 ? Math.min(100, Math.round((m.errorCounter / m.errorMaxCounter) * 100)) : 0;
 
@@ -514,12 +490,10 @@ export const DashboardView: React.FC = () => {
                                         <tr
                                             key={m.id}
                                             style={{ animationDelay: `${Math.min(idx * 20, 350)}ms` }}
-                                            className={`animate-row-enter transition-colors duration-150 ${
-                                                hasActionRequired
-                                                    ? 'bg-rose-950/20 hover:bg-rose-900/30 border-l-4 border-rose-500'
-                                                    : isDead
-                                                        ? 'opacity-60 bg-slate-900/50 hover:bg-brand-surface-high'
-                                                        : 'hover:bg-brand-surface-high'
+                                            className={`animate-row-enter transition-colors duration-150 border-b border-brand-border/50 group ${
+                                                isDead
+                                                    ? 'opacity-60 bg-slate-900/50 hover:bg-brand-surface-high'
+                                                    : 'hover:bg-brand-surface-high'
                                             }`}
                                         >
                                             {/* Master ID (Indigo link to FIS 1 / FIS 2) */}
@@ -532,9 +506,6 @@ export const DashboardView: React.FC = () => {
                                                     title={`Otwórz historię jednostki w FIS ${String(m.FIS || '').includes('2') ? '2' : '1'}`}
                                                 >
                                                     {m.unit}
-                                                    {hasActionRequired && (
-                                                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" title={t.limitExceededTooltip} />
-                                                    )}
                                                 </a>
                                             </td>
 
@@ -555,7 +526,7 @@ export const DashboardView: React.FC = () => {
                                                 <div className="space-y-1">
                                                     <div className="flex justify-between items-center text-xs">
                                                         <span className={cycleExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (cycleWarn ? 'text-amber-300 font-bold' : 'text-slate-200')}>
-                                                            {cycleExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0 animate-bounce" />}
+                                                            {cycleExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0" />}
                                                             <span>{m.currentCounter} <span className="text-brand-text-muted/60">/ {m.maxCounter}</span></span>
                                                         </span>
                                                         <span className={cycleExceeded ? 'text-rose-400 font-bold' : (cycleWarn ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{cyclePct}%</span>
@@ -564,7 +535,7 @@ export const DashboardView: React.FC = () => {
                                                         <div
                                                             className={`h-full rounded-full transition-all duration-700 ease-out ${
                                                                 cycleExceeded
-                                                                    ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]'
+                                                                    ? 'bg-rose-500'
                                                                     : (cycleWarn ? 'bg-amber-500' : 'bg-brand-accent')
                                                             }`}
                                                             style={{ width: `${cyclePct}%` }}
@@ -578,7 +549,7 @@ export const DashboardView: React.FC = () => {
                                                 <div className="space-y-1">
                                                     <div className="flex justify-between items-center text-xs">
                                                         <span className={errorExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (m.errorCounter > 0 ? 'text-amber-300 font-bold' : 'text-slate-200')}>
-                                                            {errorExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0 animate-bounce" />}
+                                                            {errorExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0" />}
                                                             <span>{m.errorCounter} <span className="text-brand-text-muted/60">/ {m.errorMaxCounter}</span></span>
                                                         </span>
                                                         <span className={errorExceeded ? 'text-rose-400 font-bold' : (m.errorCounter > 0 ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{errorPct}%</span>
@@ -587,7 +558,7 @@ export const DashboardView: React.FC = () => {
                                                         <div
                                                             className={`h-full rounded-full transition-all duration-700 ease-out ${
                                                                 errorExceeded
-                                                                    ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]'
+                                                                    ? 'bg-rose-500'
                                                                     : (m.errorCounter > 0 ? 'bg-amber-500' : 'bg-brand-border')
                                                             }`}
                                                             style={{ width: `${errorPct}%` }}

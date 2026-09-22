@@ -56,7 +56,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
             <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-brand-border bg-brand-surface lg:flex">
                 <div className="border-b border-brand-border p-6">
                     <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
-                    <span className="mt-1 block font-mono text-[10px] font-semibold uppercase tracking-widest text-brand-text-muted">{t.brandSubtitle}</span>
                 </div>
                 {navigation()}
             </aside>

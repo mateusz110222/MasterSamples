@@ -116,7 +116,9 @@ export const MainLayout: React.FC = () => {
                     </div>
                 </header>
 
-                <Outlet />
+                <div key={location.pathname} className="animate-page-enter">
+                    <Outlet />
+                </div>
             </main>
         </div>
     );

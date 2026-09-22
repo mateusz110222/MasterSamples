@@ -31,6 +31,9 @@ export const ALLOWED_GROUPS = [
 export const FIS1_HOST = 'plblofis1.global.borgwarner.net';
 export const FIS2_HOST = 'plblofis2.global.borgwarner.net';
 
+export const FIS1_API = `http://${FIS1_HOST}/custom/matz/php/MasterDashboard.php`;
+export const FIS2_API = `http://${FIS2_HOST}/custom/matz/php/MasterDashboard.php`;
+
 /**
  * Returns the full Unit History URL for a given master unit.
  * Uses plblofis2.global.borgwarner.net if FIS is 2, otherwise plblofis1.global.borgwarner.net.

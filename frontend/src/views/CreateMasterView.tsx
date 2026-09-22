@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { fisApi } from '../api/fisApi';
+import { fisApi, FIS1_API, FIS2_API } from '../api/fisApi';
 import { masterApi, CreateMasterPayload } from '../api/masterApi';
 import type { MasterUnit } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
@@ -36,6 +36,14 @@ export const CreateMasterView: React.FC = () => {
     const [status, setStatus] = useState<'GOOD' | 'BAD'>('GOOD');
     const [maxCounter, setMaxCounter] = useState<number>(1000);
     const [maxErrors, setMaxErrors] = useState<number>(50);
+    const [selectedFis, setSelectedFis] = useState<'FIS1' | 'FIS2'>(
+        () => (localStorage.getItem('selectedFis') as 'FIS1' | 'FIS2') ?? 'FIS1'
+    );
+
+    const handleFisChange = (fis: 'FIS1' | 'FIS2') => {
+        setSelectedFis(fis);
+        localStorage.setItem('selectedFis', fis);
+    };
 
     // Existing unit update comparison modal
     const [existingModalData, setExistingModalData] = useState<{
@@ -73,9 +81,10 @@ export const CreateMasterView: React.FC = () => {
     }, [processTags, multiSearchQuery]);
 
     const createMutation = useMutation({
-        mutationFn: (payload: CreateMasterPayload) => masterApi.createMaster(payload),
+        mutationFn: ({ payload, apiUrl }: { payload: CreateMasterPayload; apiUrl: string }) =>
+            masterApi.createMaster(payload, apiUrl),
         onSuccess: (res, variables) => {
-            if (res.data?.exists && !variables.forceUpdate) {
+            if (res.data?.exists && !variables.payload.forceUpdate) {
                 setExistingModalData({
                     oldData: res.data.oldData ?? {},
                     newData: res.data.newData ?? {},
@@ -119,13 +128,18 @@ export const CreateMasterView: React.FC = () => {
             return;
         }
 
+        const apiUrl = selectedFis === 'FIS2' ? FIS2_API : FIS1_API;
         createMutation.mutate({
-            unit: sn,
-            process: proc,
-            status,
-            maxCounter: Number(maxCounter) || 1000,
-            maxErrors: Number(maxErrors) || 50,
-            forceUpdate
+            payload: {
+                unit: sn,
+                process: proc,
+                status,
+                maxCounter: Number(maxCounter) || 1000,
+                maxErrors: Number(maxErrors) || 50,
+                fis: selectedFis,
+                forceUpdate
+            },
+            apiUrl
         });
     };
 
@@ -146,10 +160,10 @@ export const CreateMasterView: React.FC = () => {
     };
 
     return (
-        <div className="max-w-2xl mx-auto space-y-6 animate-page-enter">
+        <div className="max-w-2xl mx-auto space-y-6">
             <ErrorBanner message={processTagsError ? getErrorMessage(processTagsError, 'Nie udało się pobrać listy procesów.') : null} />
             {/* Top Navigation Back */}
-            <div className="flex items-center justify-between animate-slide-down">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
                 <button
                     type="button"
                     onClick={() => navigate('/')}
@@ -159,35 +173,66 @@ export const CreateMasterView: React.FC = () => {
                     <span>{t.backToDashboard}</span>
                 </button>
 
-                {/* Mode Switcher Pill */}
-                <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md">
-                    <button
-                        type="button"
-                        onClick={() => setMode('single')}
-                        className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            mode === 'single'
-                                ? 'bg-brand-accent text-brand-text shadow-xs'
-                                : 'text-brand-text-muted hover:text-brand-text'
-                        }`}
-                    >
-                        {t.singleProcessMode}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setMode('multiple')}
-                        className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            mode === 'multiple'
-                                ? 'bg-brand-accent text-brand-text shadow-xs'
-                                : 'text-brand-text-muted hover:text-brand-text'
-                        }`}
-                    >
-                        {t.multiProcessMode}
-                    </button>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {/* FIS Selector Pill */}
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-brand-text-muted">{t.fisLabel}:</span>
+                        <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md">
+                            <button
+                                type="button"
+                                onClick={() => handleFisChange('FIS1')}
+                                className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    selectedFis === 'FIS1'
+                                        ? 'bg-brand-accent text-brand-text shadow-xs'
+                                        : 'text-brand-text-muted hover:text-brand-text'
+                                }`}
+                            >
+                                FIS 1
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleFisChange('FIS2')}
+                                className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    selectedFis === 'FIS2'
+                                        ? 'bg-brand-accent text-brand-text shadow-xs'
+                                        : 'text-brand-text-muted hover:text-brand-text'
+                                }`}
+                            >
+                                FIS 2
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Mode Switcher Pill */}
+                    <div className="bg-brand-surface border border-brand-border p-1 rounded-xl flex items-center gap-1 shadow-md">
+                        <button
+                            type="button"
+                            onClick={() => setMode('single')}
+                            className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                mode === 'single'
+                                    ? 'bg-brand-accent text-brand-text shadow-xs'
+                                    : 'text-brand-text-muted hover:text-brand-text'
+                            }`}
+                        >
+                            {t.singleProcessMode}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMode('multiple')}
+                            className={`interactive-pill px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                mode === 'multiple'
+                                    ? 'bg-brand-accent text-brand-text shadow-xs'
+                                    : 'text-brand-text-muted hover:text-brand-text'
+                            }`}
+                        >
+                            {t.multiProcessMode}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Main Card */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 animate-slide-up">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6">
                 <div className="border-b border-brand-border/70 pb-4">
                     <h2 className="text-xl font-bold text-brand-text tracking-tight flex items-center gap-2.5">
                         <PlusCircle className="text-brand-accent transition-transform duration-300 group-hover:rotate-90" size={22} />
@@ -239,16 +284,18 @@ export const CreateMasterView: React.FC = () => {
                             onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
                             className="w-full px-4 py-3 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-base font-bold placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent transition-colors"
                         />
-                        {!serialNumber.trim() ? (
-                            <p className="text-[11px] text-brand-text-muted/70 font-sans">
-                                Wymagany unikalny numer seryjny sztuki wzorcowej.
-                            </p>
-                        ) : (
-                            <p className="text-[11px] text-emerald-400/90 font-sans flex items-center gap-1">
-                                <Check size={12} />
-                                <span>Gotowy do rejestracji w FIS jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
-                            </p>
-                        )}
+                        <div className="h-4">
+                            {!serialNumber.trim() ? (
+                                <p className="text-[11px] text-brand-text-muted/70 font-sans leading-none">
+                                    Wymagany unikalny numer seryjny sztuki wzorcowej.
+                                </p>
+                            ) : (
+                                <p className="text-[11px] text-emerald-400/90 font-sans flex items-center gap-1 leading-none">
+                                    <Check size={12} />
+                                    <span>Gotowy do rejestracji w FIS jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
+                                </p>
+                            )}
+                        </div>
                     </div>
 
                     {/* 2. Process Selection: Searchable Select for Single, or Filtered Pool for Multiple */}
@@ -373,8 +420,8 @@ export const CreateMasterView: React.FC = () => {
                                                     onClick={() => toggleMultiProcess(tag.key)}
                                                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
                                                         selected
-                                                            ? 'bg-brand-accent text-brand-text shadow-xs'
-                                                            : 'bg-brand-surface-high text-brand-text border border-brand-border hover:border-brand-text-muted/60'
+                                                            ? 'bg-brand-accent text-white shadow-xs ring-1 ring-brand-accent'
+                                                            : 'bg-brand-surface-high text-brand-text border border-brand-border hover:bg-indigo-600/25 hover:border-brand-accent hover:text-white hover:-translate-y-0.5'
                                                     }`}
                                                 >
                                                     {tag.key}
@@ -418,29 +465,6 @@ export const CreateMasterView: React.FC = () => {
                                 <AlertCircle size={18} className={status === 'BAD' ? 'animate-scale-in text-rose-400' : ''} />
                                 <span>BAD</span>
                             </button>
-                        </div>
-
-                        {/* Status Consequence Preview Card */}
-                        <div className={`p-3.5 rounded-xl border transition-all duration-200 text-xs animate-scale-in ${
-                            status === 'GOOD'
-                                ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
-                                : 'bg-rose-950/20 border-rose-500/40 text-rose-200'
-                        }`}>
-                            <div className="flex items-start gap-2.5">
-                                {status === 'GOOD' ? (
-                                    <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                                ) : (
-                                    <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
-                                )}
-                                <div className="space-y-1">
-                                    <span className="font-bold text-xs uppercase tracking-wide block">
-                                        {status === 'GOOD' ? t.consequenceGoodTitle : t.consequenceBadTitle}
-                                    </span>
-                                    <p className="text-[11px] text-brand-text-muted leading-relaxed font-sans">
-                                        {status === 'GOOD' ? t.consequenceGoodDesc : t.consequenceBadDesc}
-                                    </p>
-                                </div>
-                            </div>
                         </div>
                     </div>
 

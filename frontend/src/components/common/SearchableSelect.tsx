@@ -251,10 +251,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                         onMouseEnter={() => setHighlightedIndex(idx)}
                                         className={`px-3 py-2 rounded-lg text-xs font-mono flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                                             isSelected
-                                                ? 'bg-brand-accent text-brand-text font-bold'
+                                                ? 'bg-brand-accent text-white font-bold shadow-xs'
                                                 : isHighlighted
-                                                    ? 'bg-brand-surface-high text-brand-text'
-                                                    : 'text-brand-text hover:bg-brand-surface-high hover:text-brand-text'
+                                                    ? 'bg-indigo-600/30 text-white font-semibold'
+                                                    : 'text-brand-text hover:bg-indigo-600/20 hover:text-white'
                                         }`}
                                     >
                                         <div className="flex items-baseline gap-2 truncate">

@@ -14,6 +14,7 @@ export interface CreateMasterPayload {
     status: 'GOOD' | 'BAD';
     maxCounter: number;
     maxErrors: number;
+    fis?: 'FIS1' | 'FIS2';
     forceUpdate?: boolean;
 }
 
@@ -36,8 +37,8 @@ export const masterApi = {
         return res.data;
     },
 
-    createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<CreateMasterResult>> => {
-        return apiRequest(API_BASE, { job: 'CreateMaster' }, {
+    createMaster: async (payload: CreateMasterPayload, apiUrl?: string): Promise<ApiResponse<CreateMasterResult>> => {
+        return apiRequest(apiUrl ?? API_BASE, { job: 'CreateMaster' }, {
             method: 'POST',
             body: JSON.stringify(payload)
         });

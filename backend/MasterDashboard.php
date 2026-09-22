@@ -6,6 +6,12 @@ declare(strict_types=1);
  * Production path: /custom/matz/php/MasterDashboard.php
  */
 
+use BuildingBlocks\Archive;
+use BuildingBlocks\Lib;
+use BuildingBlocks\Unit;
+
+require_once __DIR__ . '/../phpBB/BuildingBlocks.php';
+
 date_default_timezone_set('Europe/Warsaw');
 
 header('Content-Type: application/json; charset=utf-8');
@@ -18,11 +24,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     exit;
 }
 
-// Include BuildingBlocks if available
-$bbPath = __DIR__ . '/../phpBB/BuildingBlocks.php';
-if (is_file($bbPath)) {
-    require_once $bbPath;
-}
 
 const ALLOWED_GROUPS = [
     'admin_group',
@@ -40,11 +41,11 @@ function sendJsonResponse(bool $status, string $message, mixed $data = null, int
         'status' => $status,
         'message' => $message,
         'data' => $data,
-    ], JSON_UNESCAPED_UNICODE);
+    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-function getDbConnection(string $defaultDb = 'masterSample'): \mysqli
+function getDbConnection(string $defaultDb = 'masterSample'): mysqli
 {
     $configPath = '/fis/mantis/custom/database/config.ini';
     $host = '127.0.0.1';
@@ -65,15 +66,15 @@ function getDbConnection(string $defaultDb = 'masterSample'): \mysqli
         $password = getenv('DB_PASSWORD') ?: '';
     }
 
-    \mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-    $mysqli = new \mysqli($host, $user, $password, $dbName);
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+    $mysqli = new mysqli($host, $user, $password, $dbName);
     $mysqli->set_charset('utf8mb4');
     return $mysqli;
 }
 
-function getLocalUserDbConnection(): \mysqli
+function getLocalUserDbConnection(): mysqli
 {
-    $mysqli = new \mysqli('localhost', 'fiswww', '', 'users');
+    $mysqli = new mysqli('localhost', 'fiswww', '', 'users');
     $mysqli->set_charset('utf8mb4');
     return $mysqli;
 }
@@ -82,7 +83,7 @@ function getRequestData(): array
 {
     $raw = file_get_contents('php://input');
     if (!empty($raw)) {
-        $decoded = json_decode($raw, true);
+        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         if (is_array($decoded)) {
             return array_merge($_GET, $decoded);
         }
@@ -113,6 +114,9 @@ function getCurrentUser(array $input): string
     return 'SYSTEM';
 }
 
+/**
+ * @throws JsonException
+ */
 function getAuthenticatedUser(): string
 {
     $remoteUser = cleanUsername((string)(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? '')));
@@ -121,7 +125,7 @@ function getAuthenticatedUser(): string
     }
 
     if (!empty($_SERVER['HTTP_X_USER'])) {
-        return cleanUsername((string)$_SERVER['HTTP_X_USER']);
+        return cleanUsername($_SERVER['HTTP_X_USER']);
     }
 
     $input = getRequestData();
@@ -136,14 +140,17 @@ function getAuthenticatedUser(): string
 function getUserGroups(string $userId): array
 {
     try {
-        $groups = \BuildingBlocks\Lib::GetUserGroup($userId);
+        $groups = Lib::GetUserGroup($userId);
         return is_array($groups) ? array_values(array_map('strval', $groups)) : [];
-    } catch (\Throwable $error) {
+    } catch (Throwable $error) {
         error_log("MasterDashboard authorization lookup failed: {$error->getMessage()}");
         return [];
     }
 }
 
+/**
+ * @throws JsonException
+ */
 function requireWriteAccess(): string
 {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -162,6 +169,39 @@ function requireWriteAccess(): string
     return $userId;
 }
 
+function getUserFullName(string $userId): string
+{
+    $userId = cleanUsername($userId);
+    if ($userId === '' || $userId === 'SYSTEM') {
+        return $userId;
+    }
+
+    static $cache = [];
+    if (isset($cache[$userId])) {
+        return $cache[$userId];
+    }
+
+    try {
+        $localDb = getLocalUserDbConnection();
+        $safeUser = $localDb->real_escape_string($userId);
+        $res = $localDb->query("SELECT name FROM tbl_users WHERE userId = '$safeUser' LIMIT 1");
+        if ($res && ($row = $res->fetch_assoc())) {
+            if (!empty($row['name'])) {
+                $name = trim((string)$row['name']);
+                $localDb->close();
+                $cache[$userId] = $name;
+                return $name;
+            }
+        }
+        $localDb->close();
+    } catch (Throwable $e) {
+        error_log("getUserFullName error: " . $e->getMessage());
+    }
+
+    $cache[$userId] = $userId;
+    return $userId;
+}
+
 $input = getRequestData();
 $job = $input['job'] ?? $_GET['job'] ?? '';
 
@@ -173,10 +213,6 @@ $blockedMachinesDir = '/fis/mantis/data/blocked_machines/';
 
 try {
     switch ($job) {
-
-        /* =========================================================================
-         * 0. AUTH & USER INFO (localhost users.tbl_users + Lib::GetUserGroup)
-         * ========================================================================= */
         case 'GetUserInfo': {
             $userId = getCurrentUser($input);
 
@@ -188,32 +224,30 @@ try {
                 'canEdit' => false,
             ];
 
-            // 1. Fetch user groups via BuildingBlocks Lib::GetUserGroup
             $userInfo['groups'] = getUserGroups($userId);
 
             $userInfo['canEdit'] = !empty(array_intersect($userInfo['groups'], ALLOWED_GROUPS));
 
-            // 2. Fetch full name & email from localhost MySQL (users.tbl_users) using fiswww
             try {
                 $localDb = getLocalUserDbConnection();
                 $safeUser = $localDb->real_escape_string($userId);
                 $res = $localDb->query("SELECT name, email FROM tbl_users WHERE userId = '$safeUser' LIMIT 1");
                 if ($res && ($row = $res->fetch_assoc())) {
-                    if (!empty($row['name'])) $userInfo['name'] = (string)$row['name'];
-                    if (!empty($row['email'])) $userInfo['email'] = (string)$row['email'];
+                    if (!empty($row['name'])) {
+                        $userInfo['name'] = (string)$row['name'];
+                    }
+                    if (!empty($row['email'])) {
+                        $userInfo['email'] = (string)$row['email'];
+                    }
                 }
                 $localDb->close();
-            } catch (\Throwable $error) {
+            } catch (Throwable $error) {
                 error_log("MasterDashboard local user lookup failed: {$error->getMessage()}");
             }
 
             sendJsonResponse(true, 'Pobrano dane użytkownika', $userInfo);
-            break;
         }
 
-        /* =========================================================================
-         * 1. MASTER UNITS
-         * ========================================================================= */
         case 'GetMasters': {
             $mysqli = getDbConnection();
             try {
@@ -264,6 +298,13 @@ try {
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
 
+                foreach ($rows as &$row) {
+                    if (!empty($row['user'])) {
+                        $row['user'] = getUserFullName($row['user']);
+                    }
+                }
+                unset($row);
+
                 sendJsonResponse(true, 'Lista masterów pobrana', $rows);
             } finally {
                 $mysqli->close();
@@ -285,6 +326,10 @@ try {
                 $row = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
 
+                if ($row && !empty($row['user'])) {
+                    $row['user'] = getUserFullName($row['user']);
+                }
+
                 sendJsonResponse(true, 'Status mastera', [
                     'exists' => (bool)$row,
                     'unit' => $row ?: null
@@ -298,7 +343,8 @@ try {
         case 'ResetCounters': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
-            $resetType = strtolower(trim((string)($input['resetType'] ?? 'all'))); // 'all' | 'cycles' | 'errors'
+            $operatorName = getUserFullName($user);
+            $resetType = strtolower(trim((string)($input['resetType'] ?? 'all')));
 
             if (empty($rawUnits)) {
                 sendJsonResponse(false, 'Brak jednostek do zresetowania', null, 400);
@@ -332,18 +378,18 @@ try {
                              SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
-                        $stmtHist->bind_param('sss', $user, $operationName, $unit);
+                        $stmtHist->bind_param('sss', $operatorName, $operationName, $unit);
                         $stmtHist->execute();
                         $stmtHist->close();
 
                         if ($resetType === 'cycles') {
-                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0, user = ? WHERE unit = ?");
+                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0 WHERE unit = ?");
                         } elseif ($resetType === 'errors') {
-                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET errorCounter = 0, user = ? WHERE unit = ?");
+                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET errorCounter = 0 WHERE unit = ?");
                         } else {
-                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0, errorCounter = 0, user = ? WHERE unit = ?");
+                            $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0, errorCounter = 0 WHERE unit = ?");
                         }
-                        $stmtUpdate->bind_param('ss', $user, $unit);
+                        $stmtUpdate->bind_param('s', $unit);
                         $stmtUpdate->execute();
                         $stmtUpdate->close();
 
@@ -355,19 +401,19 @@ try {
                            ($resetType === 'errors' ? "Wyzerowano liczniki błędów ($resetCount sztuk)" : "Wyzerowano wszystkie liczniki ($resetCount sztuk)");
 
                     sendJsonResponse(true, $msg, ['count' => $resetCount, 'resetType' => $resetType]);
-                } catch (\Throwable $err) {
+                } catch (Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
                 }
             } finally {
                 $mysqli->close();
             }
-            break;
         }
 
         case 'BlockMaster': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
+            $operatorName = getUserFullName($user);
 
             if (empty($rawUnits)) {
                 sendJsonResponse(false, 'Brak jednostek do zablokowania', null, 400);
@@ -384,31 +430,31 @@ try {
                              SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Block', NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
-                        $stmtHist->bind_param('ss', $user, $unit);
+                        $stmtHist->bind_param('ss', $operatorName, $unit);
                         $stmtHist->execute();
                         $stmtHist->close();
 
-                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 2, user = ? WHERE unit = ?");
-                        $stmtUpdate->bind_param('ss', $user, $unit);
+                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 2 WHERE unit = ?");
+                        $stmtUpdate->bind_param('s', $unit);
                         $stmtUpdate->execute();
                         $stmtUpdate->close();
                     }
 
                     $mysqli->commit();
                     sendJsonResponse(true, "Zablokowano mastera (isActive=2)!");
-                } catch (\Throwable $err) {
+                } catch (Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
                 }
             } finally {
                 $mysqli->close();
             }
-            break;
         }
 
         case 'ActivateMaster': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
+            $operatorName = getUserFullName($user);
 
             if (empty($rawUnits)) {
                 sendJsonResponse(false, 'Brak jednostek do aktywacji', null, 400);
@@ -425,26 +471,25 @@ try {
                              SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Activate', NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
-                        $stmtHist->bind_param('ss', $user, $unit);
+                        $stmtHist->bind_param('ss', $operatorName, $unit);
                         $stmtHist->execute();
                         $stmtHist->close();
 
-                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 1, user = ? WHERE unit = ?");
-                        $stmtUpdate->bind_param('ss', $user, $unit);
+                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 1 WHERE unit = ?");
+                        $stmtUpdate->bind_param('s', $unit);
                         $stmtUpdate->execute();
                         $stmtUpdate->close();
                     }
 
                     $mysqli->commit();
                     sendJsonResponse(true, "Jednostki zostały aktywowane (isActive=1)!");
-                } catch (\Throwable $err) {
+                } catch (Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
                 }
             } finally {
                 $mysqli->close();
             }
-            break;
         }
 
         case 'DeleteMaster': {
@@ -476,7 +521,7 @@ try {
 
                     $mysqli->commit();
                     sendJsonResponse(true, "Master '$unit' został usunięty z bazy danych", ['affected_rows' => $affected]);
-                } catch (\Throwable $err) {
+                } catch (Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
                 }
@@ -498,6 +543,9 @@ try {
             if ($unit === '' || $processList === '') {
                 sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
             }
+
+            $fisRaw = strtoupper(trim((string)($input['fis'] ?? 'FIS1')));
+            $fisValue = in_array($fisRaw, ['FIS1', 'FIS2'], true) ? $fisRaw : 'FIS1';
 
             $processArray = array_filter(array_map('trim', explode(',', $processList)));
             $processClean = implode(',', $processArray);
@@ -524,54 +572,55 @@ try {
                     ]);
                 }
 
-                // BuildingBlocks verification, unarchive & creation (if loaded in environment)
-                if (class_exists('\BuildingBlocks\Unit')) {
+                try {
                     try {
-                        try {
-                            \BuildingBlocks\Unit::Find($unit);
-                        } catch (\Throwable $findError) {
-                            \BuildingBlocks\Archive::GetAll($unit);
-                            \BuildingBlocks\Archive::Unarchive($unit);
-                            \BuildingBlocks\Unit::Find($unit);
-                        }
-                        \BuildingBlocks\Unit::Delete($unit);
-
-                        $dcmods = "MS_HISTORY|{$unit}_MASTER|MS_PROCESS|{$processClean}|MS_STATUS|{$status}|OPERATOR|{$user}";
-                        \BuildingBlocks\Unit::DataEntry(
-                            $unit,
-                            "CREATEUNIT",
-                            "WEB",
-                            $dcmods,
-                            "ata",
-                            "",
-                            "",
-                            "",
-                            "GOLD",
-                            "",
-                            "",
-                            "GOLDEN"
-                        );
-                    } catch (\Throwable $error) {
-                        throw new \RuntimeException('Nie udało się zarejestrować mastera w FIS: ' . $error->getMessage(), 0, $error);
+                        Unit::Find($unit);
+                    } catch (Throwable $findError) {
+                        Archive::GetAll($unit);
+                        Archive::Unarchive($unit);
+                        Unit::Find($unit);
                     }
+                    Unit::Delete($unit);
+
+                    $creatorName = getUserFullName($user);
+                    $dcmods = "MS_HISTORY|{$unit}_MASTER|MS_PROCESS|{$processClean}|MS_STATUS|{$status}|OPERATOR|{$creatorName}";
+                    Unit::DataEntry(
+                        $unit,
+                        "CREATEUNIT",
+                        "WEB",
+                        $dcmods,
+                        "ata",
+                        "",
+                        "",
+                        "",
+                        "GOLD",
+                        "",
+                        "",
+                        "GOLDEN"
+                    );
+                } catch (Throwable $error) {
+                    throw new RuntimeException('Nie udało się zarejestrować mastera w FIS: ' . $error->getMessage(), 0, $error);
                 }
+
+                $creatorName = getUserFullName($user);
 
                 $mysqli->begin_transaction();
                 try {
                     $sqlUnit = "INSERT INTO masterUnits
                                     (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS)
                                 VALUES
-                                    (?, ?, ?, 0, ?, 0, ?, 0, ?, 1, 'FIS1')
+                                    (?, ?, ?, 0, ?, 0, ?, 0, ?, 1, ?)
                                 ON DUPLICATE KEY UPDATE
                                     process = VALUES(process),
                                     status = VALUES(status),
                                     maxCounter = VALUES(maxCounter),
                                     errorMaxCounter = VALUES(errorMaxCounter),
-                                    user = VALUES(user),
+                                    user = IF(user IS NULL OR user = '', VALUES(user), user),
+                                    FIS = VALUES(FIS),
                                     isactive = 1";
 
                     $stmtSave = $mysqli->prepare($sqlUnit);
-                    $stmtSave->bind_param('sssiis', $unit, $processClean, $status, $maxCounter, $errorMaxCounter, $user);
+                    $stmtSave->bind_param('sssiiss', $unit, $processClean, $status, $maxCounter, $errorMaxCounter, $creatorName, $fisValue);
                     $stmtSave->execute();
                     $stmtSave->close();
 
@@ -582,7 +631,7 @@ try {
                                     unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
                                 FROM masterUnits WHERE unit = ?";
                     $stmtHist = $mysqli->prepare($sqlHist);
-                    $stmtHist->bind_param('sss', $user, $operation, $unit);
+                    $stmtHist->bind_param('sss', $creatorName, $operation, $unit);
                     $stmtHist->execute();
                     $stmtHist->close();
 
@@ -594,14 +643,13 @@ try {
                     $mysqli->commit();
                     $actionMsg = $existing ? "Master '$unit' został pomyślnie zaktualizowany!" : "Master '$unit' został pomyślnie utworzony i zarejestrowany!";
                     sendJsonResponse(true, $actionMsg, ['unit' => $unit, 'operation' => $operation]);
-                } catch (\Throwable $err) {
+                } catch (Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
                 }
             } finally {
                 $mysqli->close();
             }
-            break;
         }
 
         /* =========================================================================
@@ -625,6 +673,13 @@ try {
                 $stmt->execute();
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
+
+                foreach ($rows as &$row) {
+                    if (!empty($row['user'])) {
+                        $row['user'] = getUserFullName($row['user']);
+                    }
+                }
+                unset($row);
 
                 sendJsonResponse(true, "Historia dla jednostki '$unit'", $rows);
             } finally {
@@ -701,6 +756,13 @@ try {
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
 
+                foreach ($rows as &$row) {
+                    if (!empty($row['user'])) {
+                        $row['user'] = getUserFullName($row['user']);
+                    }
+                }
+                unset($row);
+
                 sendJsonResponse(true, 'Historia operacji załadowana', $rows);
             } finally {
                 $mysqli->close();
@@ -742,7 +804,6 @@ try {
                 }
             }
             sendJsonResponse(true, 'Pobrano zablokowane maszyny', $items);
-            break;
         }
 
         case 'DeleteBlockedMachine': {
@@ -762,7 +823,6 @@ try {
             } else {
                 sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
             }
-            break;
         }
 
         /* =========================================================================
@@ -950,7 +1010,7 @@ try {
         default:
             sendJsonResponse(false, "Nieznany job: '$job'", null, 404);
     }
-} catch (\Throwable $e) {
+} catch (Throwable $e) {
     error_log(sprintf(
         'MasterDashboard error: %s in %s:%d',
         $e->getMessage(),

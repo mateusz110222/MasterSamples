@@ -3,7 +3,7 @@ import type { MasterUnit } from '../types/index.ts';
 export type MasterSortField = 'unit' | 'process' | 'FIS' | 'currentCounter' | 'errorCounter' | 'status' | 'user' | 'isactive';
 export type SortDirection = 'asc' | 'desc';
 
-export type TaskPreset = 'all' | 'action_required' | 'to_reset' | 'blocked' | 'cycles_80' | 'errors_exceeded' | 'my_processes';
+export type TaskPreset = 'all' | 'action_required' | 'blocked' | 'cycles_80' | 'errors_exceeded' | 'my_processes';
 
 export interface MasterFilters {
     searchTerm: string;
@@ -38,15 +38,11 @@ export const filterMasters = (masters: MasterUnit[], filters: MasterFilters): Ma
             const cycleExceeded = master.maxCounter > 0 && master.currentCounter >= master.maxCounter;
             const errorExceeded = master.errorMaxCounter > 0 && master.errorCounter >= master.errorMaxCounter;
             const cycle80 = master.maxCounter > 0 && (master.currentCounter / master.maxCounter) >= 0.8;
-            const hasErrors = master.errorCounter > 0;
             const isDead = master.isactive === 2;
 
             switch (filters.taskPreset) {
                 case 'action_required':
                     if (!cycleExceeded && !errorExceeded && !isDead) return false;
-                    break;
-                case 'to_reset':
-                    if (!cycle80 && !hasErrors && !cycleExceeded && !errorExceeded) return false;
                     break;
                 case 'blocked':
                     if (!isDead) return false;

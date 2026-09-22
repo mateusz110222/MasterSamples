@@ -102,13 +102,13 @@ export const EngineersView: React.FC = () => {
     }, [mails, searchTerm]);
 
     return (
-        <div className="space-y-6 animate-page-enter">
+        <div className="space-y-6">
             <ErrorBanner
                 message={actionError ?? (engineersError ? getErrorMessage(engineersError) : mailsError ? getErrorMessage(mailsError) : null)}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
             />
             {/* Header info banner */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start justify-between gap-4 flex-wrap hover-lift">
                 <div className="flex items-start gap-4">
                     <div className="p-2.5 rounded-xl bg-brand-accent/15 border border-brand-accent/30 text-brand-accent shrink-0">
                         <Mail size={24} />
@@ -149,7 +149,7 @@ export const EngineersView: React.FC = () => {
             </div>
 
             {/* Tab Navigation Pill Switcher */}
-            <div className="flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-2">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="bg-brand-surface border border-brand-border p-1 rounded-2xl flex items-center gap-1 shadow-md">
                     <button
                         type="button"
@@ -199,7 +199,7 @@ export const EngineersView: React.FC = () => {
             </div>
 
             {/* Filter / Search Bar */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-3">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap">
                 <div className="relative flex-1 min-w-[260px]">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                     <input
@@ -218,7 +218,7 @@ export const EngineersView: React.FC = () => {
 
             {/* TAB 1 CONTENT: Process Assignments (engineers table) */}
             {activeTab === 'processes' && (
-                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
+                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
@@ -304,7 +304,7 @@ export const EngineersView: React.FC = () => {
 
             {/* TAB 2 CONTENT: Standalone Mails Directory (mails table) */}
             {activeTab === 'mails' && (
-                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
+                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>

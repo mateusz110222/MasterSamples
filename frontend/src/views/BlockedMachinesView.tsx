@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { blockedApi } from '../api/blockedApi';
 import { BlockedMachine } from '../types';
 import { useAuth } from '../auth/useAuth';
+import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
 import { Badge } from '../components/common/Badge';
 import { ErrorBanner } from '../components/common/ErrorBanner';
@@ -18,6 +19,7 @@ import {
 
 export const BlockedMachinesView: React.FC = () => {
     const { canEdit } = useAuth();
+    const { t } = useLanguage();
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState('');
     const [deleteTarget, setDeleteTarget] = useState<BlockedMachine | null>(null);
@@ -50,34 +52,33 @@ export const BlockedMachinesView: React.FC = () => {
     }, [machines, searchTerm]);
 
     return (
-        <div className="space-y-6 animate-page-enter">
+        <div className="space-y-6">
             <ErrorBanner
                 message={actionError ?? (machinesError ? getErrorMessage(machinesError, 'Nie udało się pobrać blokad.') : null)}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
             />
             {/* Header info banner */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start gap-4 hover-lift animate-slide-up stagger-1">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start gap-4 hover-lift">
                 <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
                     <ShieldAlert size={24} />
                 </div>
                 <div>
                     <h2 className="text-base font-bold text-brand-text tracking-wide">
-                        Zablokowane Maszyny i Prefiksy Linii Produkcyjnych
+                        {t.blockedPageTitle}
                     </h2>
                     <p className="text-xs text-brand-text-muted mt-1 leading-relaxed">
-                        Poniższa lista prezentuje aktywne pliki blokad w katalogu <span className="font-mono text-amber-300">/fis/mantis/data/blocked_machines/</span>.
-                        Usunięcie rekordu odblokowuje daną maszynę lub prefiks zlecenia w systemie produkcyjnym.
+                        {t.blockedPageDesc}
                     </p>
                 </div>
             </div>
 
             {/* Filter and action bar */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-2">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap">
                 <div className="relative flex-1 min-w-[240px]">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                     <input
                         type="text"
-                        placeholder="Szukaj maszyny lub prefiksu..."
+                        placeholder={t.blockedSearchPlaceholder}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
@@ -86,7 +87,7 @@ export const BlockedMachinesView: React.FC = () => {
 
                 <div className="flex items-center gap-3">
                     <span className="text-xs text-brand-text-muted font-mono hidden sm:inline">
-                        Znaleziono: <strong className="text-brand-text">{filteredMachines.length}</strong>
+                        {t.blockedFoundCount} <strong className="text-brand-text">{filteredMachines.length}</strong>
                     </span>
                     <button
                         onClick={() => refetch()}
@@ -94,41 +95,40 @@ export const BlockedMachinesView: React.FC = () => {
                         className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider shrink-0 cursor-pointer"
                     >
                         <RefreshCw size={15} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
-                        <span>Odśwież</span>
+                        <span>{t.blockedRefresh}</span>
                     </button>
                 </div>
             </div>
 
             {/* Table */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-3">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                         <thead>
                             <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
-                                <th className="py-3.5 px-4 font-semibold">Maszyna</th>
-                                <th className="py-3.5 px-4 font-semibold">Prefiks / Master</th>
-                                <th className="py-3.5 px-4 font-semibold">Nazwa Pliku Systemowego</th>
-                                <th className="py-3.5 px-4 font-semibold">Data Zablokowania</th>
-                                {canEdit && <th className="py-3.5 px-4 font-semibold text-right">Akcja</th>}
+                                <th className="py-3.5 px-4 font-semibold">{t.blockedColMachine}</th>
+                                <th className="py-3.5 px-4 font-semibold">{t.blockedColPrefix}</th>
+                                <th className="py-3.5 px-4 font-semibold">{t.blockedColDate}</th>
+                                {canEdit && <th className="py-3.5 px-4 font-semibold text-right">{t.blockedColAction}</th>}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-xs">
                             {isLoading ? (
                                 <tr>
-                                    <td colSpan={5} className="py-12 text-center text-brand-text-muted">
+                                    <td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">
                                         <div className="inline-flex items-center gap-2">
                                             <RefreshCw className="animate-spin text-brand-accent" size={18} />
-                                            <span>Skanowanie katalogu blokad maszyn...</span>
+                                            <span>{t.blockedLoadingText}</span>
                                         </div>
                                     </td>
                                 </tr>
                             ) : filteredMachines.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="py-12 text-center text-brand-text-muted/70 font-sans">
+                                    <td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                         <div className="flex flex-col items-center gap-2 animate-scale-in">
                                             <CheckCircle2 className="text-emerald-500" size={28} />
-                                            <span className="font-semibold text-brand-text">Brak zablokowanych maszyn</span>
-                                            <span className="text-xs text-brand-text-muted/70">Wszystkie linie produkcyjne pracują bez blokad.</span>
+                                            <span className="font-semibold text-brand-text">{t.blockedNoneTitle}</span>
+                                            <span className="text-xs text-brand-text-muted/70">{t.blockedNoneDesc}</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -148,9 +148,6 @@ export const BlockedMachinesView: React.FC = () => {
                                                 {m.prefix}
                                             </Badge>
                                         </td>
-                                        <td className="py-3.5 px-4 text-brand-text-muted">
-                                            {m.filename}
-                                        </td>
                                         <td className="py-3.5 px-4 text-brand-text">
                                             {m.blockedAt || '—'}
                                         </td>
@@ -161,7 +158,7 @@ export const BlockedMachinesView: React.FC = () => {
                                                     className="interactive-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-bold cursor-pointer"
                                                 >
                                                     <Trash2 size={13} />
-                                                    <span>Odblokuj</span>
+                                                    <span>{t.blockedUnlockBtn}</span>
                                                 </button>
                                             </td>
                                         )}
@@ -173,33 +170,38 @@ export const BlockedMachinesView: React.FC = () => {
                 </div>
             </div>
 
-            {/* Delete Confirmation Modal */}
+            {/* Unblock Confirmation Modal */}
             <Modal
                 isOpen={!!deleteTarget}
                 onClose={() => setDeleteTarget(null)}
-                title="Odblokuj Maszynę / Usuń Blokadę"
-                description={`Potwierdź usunięcie blokady dla: ${deleteTarget?.machine} (${deleteTarget?.prefix})`}
+                title={t.blockedModalTitle}
+                description={t.blockedModalDesc}
             >
-                <div className="space-y-4">
-                    <div className="bg-brand-bg border border-brand-border rounded-xl p-4 text-xs font-mono space-y-1">
-                        <p><span className="text-brand-text-muted">Maszyna:</span> <strong className="text-brand-text">{deleteTarget?.machine}</strong></p>
-                        <p><span className="text-brand-text-muted">Prefiks:</span> <strong className="text-amber-400">{deleteTarget?.prefix}</strong></p>
-                        <p><span className="text-brand-text-muted">Plik na serwerze:</span> <span className="text-brand-text">{deleteTarget?.filename}</span></p>
+                <div className="space-y-5">
+                    <div className="bg-brand-surface-high border border-brand-border/80 rounded-xl p-5 flex flex-col gap-3">
+                        <div className="flex justify-between items-center pb-2 border-b border-brand-border/50">
+                            <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">{t.blockedModalMachine}</span>
+                            <span className="text-sm font-bold text-brand-text">{deleteTarget?.machine}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">{t.blockedModalPrefix}</span>
+                            <span className="text-sm font-mono font-bold text-brand-accent">{deleteTarget?.prefix}</span>
+                        </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-2">
+                    <div className="flex justify-end gap-3 pt-1">
                         <button
                             onClick={() => setDeleteTarget(null)}
-                            className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-sm font-semibold transition-colors cursor-pointer"
+                            className="px-4 py-2.5 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:bg-brand-border/50 text-sm font-bold transition-all cursor-pointer"
                         >
-                            Anuluj
+                            {t.blockedModalCancel}
                         </button>
                         <button
                             onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.filename)}
                             disabled={deleteMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-brand-text text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
+                            className="px-5 py-2.5 rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-brand-text text-sm font-bold shadow-[0_0_15px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
                         >
-                            {deleteMutation.isPending ? 'Odblokowywanie...' : 'Odblokuj Maszynę'}
+                            {deleteMutation.isPending ? t.blockedModalPending : t.blockedModalConfirm}
                         </button>
                     </div>
                 </div>

@@ -101,11 +101,11 @@ export const HistoryView: React.FC = () => {
     const hasActiveFilters = Boolean(unitFilter || operationFilter || userFilter || processFilter || statusFilter || dateFrom || dateTo);
 
     return (
-        <div className="space-y-6 animate-page-enter">
+        <div className="space-y-6">
             <ErrorBanner message={error ? getErrorMessage(error, 'Nie udało się pobrać historii.') : null} />
 
             {/* Header info banner */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 flex-wrap hover-lift">
                 <div className="flex items-center gap-4">
                     <div className="p-2.5 rounded-xl bg-brand-accent/15 border border-brand-accent/30 text-brand-accent shrink-0">
                         <History size={24} />
@@ -131,7 +131,7 @@ export const HistoryView: React.FC = () => {
             </div>
 
             {/* Filter Bar with Date Range, Status & Process */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md space-y-3 animate-slide-up stagger-2">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md space-y-3">
                 <div className="flex flex-wrap items-end gap-3">
                     {/* SN Search */}
                     <div className="space-y-1 flex-1 min-w-[170px]">
@@ -303,7 +303,7 @@ export const HistoryView: React.FC = () => {
             </div>
 
             {/* History Table */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-3">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-[13px] border-collapse">
                         <thead>

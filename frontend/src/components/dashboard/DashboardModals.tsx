@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw, Check, CheckCircle2, Ban, Trash2, ExternalLink } from 'lucide-react';
 import { getFisUnitHistoryUrl } from '../../api/fisApi';
 import type { TranslationsType } from '../../i18n/LanguageContext';
@@ -98,8 +99,8 @@ export const DashboardModals = ({
             label: t.resetOptBoth,
             description: t.resetOptBothSub,
             recommended: true,
-            selectedClass: 'border-indigo-500 bg-gradient-to-r from-indigo-500/25 via-indigo-600/20 to-purple-600/15 ring-2 ring-indigo-500/60 shadow-[0_0_22px_rgba(99,102,241,0.3)]',
-            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-indigo-400 hover:bg-indigo-950/30 hover:shadow-[0_0_16px_rgba(99,102,241,0.2)]',
+            selectedClass: 'border-indigo-500 bg-gradient-to-r from-indigo-500/25 via-indigo-600/20 to-purple-600/15 ring-2 ring-indigo-500/60 shadow-[0_0_22px_rgba(99,102,241,0.3)] hover:-translate-y-1',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-indigo-400 hover:bg-indigo-950/30 hover:shadow-[0_0_16px_rgba(99,102,241,0.2)] hover:-translate-y-1',
             radioBorder: 'border-indigo-400 bg-indigo-500/20',
             dotColor: 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.9)]',
         },
@@ -108,8 +109,8 @@ export const DashboardModals = ({
             label: t.resetOptCycles,
             description: t.resetOptCyclesSub,
             recommended: false,
-            selectedClass: 'border-amber-500 bg-gradient-to-r from-amber-500/25 via-amber-600/20 to-orange-600/15 ring-2 ring-amber-500/60 shadow-[0_0_22px_rgba(245,158,11,0.3)]',
-            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-amber-400 hover:bg-amber-950/30 hover:shadow-[0_0_16px_rgba(245,158,11,0.2)]',
+            selectedClass: 'border-amber-500 bg-gradient-to-r from-amber-500/25 via-amber-600/20 to-orange-600/15 ring-2 ring-amber-500/60 shadow-[0_0_22px_rgba(245,158,11,0.3)] hover:-translate-y-1',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-amber-400 hover:bg-amber-950/30 hover:shadow-[0_0_16px_rgba(245,158,11,0.2)] hover:-translate-y-1',
             radioBorder: 'border-amber-400 bg-amber-500/20',
             dotColor: 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]',
         },
@@ -118,12 +119,18 @@ export const DashboardModals = ({
             label: t.resetOptErrors,
             description: t.resetOptErrorsSub,
             recommended: false,
-            selectedClass: 'border-rose-500 bg-gradient-to-r from-rose-500/25 via-rose-600/20 to-pink-600/15 ring-2 ring-rose-500/60 shadow-[0_0_22px_rgba(244,63,94,0.3)]',
-            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-rose-400 hover:bg-rose-950/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)]',
+            selectedClass: 'border-rose-500 bg-gradient-to-r from-rose-500/25 via-rose-600/20 to-pink-600/15 ring-2 ring-rose-500/60 shadow-[0_0_22px_rgba(244,63,94,0.3)] hover:-translate-y-1',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-rose-400 hover:bg-rose-950/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] hover:-translate-y-1',
             radioBorder: 'border-rose-400 bg-rose-500/20',
             dotColor: 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.9)]',
         },
     ];
+
+    const lastBlockMode = useRef(true);
+    if (blockTarget !== null) {
+        lastBlockMode.current = blockTarget.block;
+    }
+    const isBlock = blockTarget !== null ? blockTarget.block : lastBlockMode.current;
 
     return (
         <>
@@ -131,10 +138,19 @@ export const DashboardModals = ({
                 isOpen={Boolean(resetTarget)}
                 onClose={closeReset}
                 title={t.resetModalTitle}
-                description={`${t.resetModalDesc} ${resetTarget?.unitNames ?? ''}`}
+                description={
+                    <span className="flex flex-col gap-2">
+                        <span>{t.resetModalDesc}</span>
+                        {resetTarget?.unitNames && (
+                            <span className="inline-block self-start font-mono text-base bg-indigo-500/20 text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-500/40">
+                                {resetTarget.unitNames}
+                            </span>
+                        )}
+                    </span>
+                }
             >
                 <div className="space-y-4">
-                    <div className="space-y-2.5">
+                    <div className="space-y-2.5 pt-2.5 px-1 pb-1">
                         {resetOptions.map(opt => {
                             const isSelected = resetType === opt.value;
                             return (
@@ -191,11 +207,11 @@ export const DashboardModals = ({
             <Modal
                 isOpen={Boolean(blockTarget)}
                 onClose={closeBlock}
-                title={blockTarget?.block ? t.blockModalTitle : t.activateModalTitle}
+                title={isBlock ? t.blockModalTitle : t.activateModalTitle}
                 description={`Zmiana stanu aktywności dla: ${blockTarget?.units.join(', ') ?? ''}`}
             >
                 <div className="space-y-5">
-                    {blockTarget?.block ? (
+                    {isBlock ? (
                         <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
                             <Ban className="mt-0.5 shrink-0 text-rose-400" size={20} />
                             <div className="space-y-1">
@@ -222,8 +238,8 @@ export const DashboardModals = ({
                         pending={blockMutation.isPending}
                         onCancel={closeBlock}
                         onConfirm={() => blockTarget && blockMutation.mutate(blockTarget)}
-                        destructive={Boolean(blockTarget?.block)}
-                        icon={blockTarget?.block ? <Ban size={16} /> : <Check size={16} />}
+                        destructive={isBlock}
+                        icon={isBlock ? <Ban size={16} /> : <Check size={16} />}
                     />
                 </div>
             </Modal>

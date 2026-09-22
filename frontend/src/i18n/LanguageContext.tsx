@@ -5,8 +5,6 @@ export type Language = 'PL' | 'EN';
 
 const translations = {
     PL: {
-        // App title / branding
-        brandSubtitle: 'BorgWarner FIS QA',
 
         // Navigation
         navDashboard: 'BAZA I AUDYT (DASHBOARD)',
@@ -40,11 +38,32 @@ const translations = {
         // Task view presets
         taskAll: 'Wszystkie',
         taskActionRequired: 'Wymaga Działania',
-        taskToReset: 'Do Resetu',
         taskBlocked: 'Zablokowane (Dead)',
         taskCycle80: '>80% Cykli',
         taskErrorExceeded: 'Przekroczone Błędy',
         taskMyProcesses: 'Moje Procesy',
+
+        // Blocked Machines View
+        blockedPageTitle: 'Zablokowane Maszyny i Prefiksy Linii Produkcyjnych',
+        blockedPageDesc: 'Lista aktywnych blokad procesowych. Usunięcie rekordu przywraca maszynę do produkcji.',
+        blockedSearchPlaceholder: 'Szukaj maszyny lub prefiksu...',
+        blockedFoundCount: 'Znaleziono:',
+        blockedRefresh: 'Odśwież',
+        blockedLoadingText: 'Skanowanie katalogu blokad maszyn...',
+        blockedNoneTitle: 'Brak zablokowanych maszyn',
+        blockedNoneDesc: 'Wszystkie linie produkcyjne pracują bez blokad.',
+        blockedColMachine: 'Maszyna',
+        blockedColPrefix: 'Prefiks / Master',
+        blockedColDate: 'Data Zablokowania',
+        blockedColAction: 'Akcja',
+        blockedUnlockBtn: 'Odblokuj',
+        blockedModalTitle: 'Odblokuj Maszynę',
+        blockedModalDesc: 'Czy na pewno chcesz przywrócić maszynę do pracy na produkcji?',
+        blockedModalMachine: 'Maszyna',
+        blockedModalPrefix: 'Prefiks',
+        blockedModalCancel: 'Anuluj',
+        blockedModalConfirm: 'Potwierdź Odblokowanie',
+        blockedModalPending: 'Odblokowywanie...',
 
         // Stats card details
         statUrgentBlocks: 'pilne blokady',
@@ -163,6 +182,7 @@ const translations = {
         backToDashboard: 'Powrót do Dashboardu',
         singleProcessMode: 'Pojedynczy Proces',
         multiProcessMode: 'Wiele Procesów',
+        fisLabel: 'System FIS',
         createTitle: 'Dodaj Master Sample',
         createSingleSub: 'Tryb pojedynczego procesu — przypisz jednostkę wzorcową do jednego etapu.',
         createMultiSub: 'Tryb wielu procesów — powiąż jedną jednostkę z wieloma liniami/stacjami.',
@@ -175,16 +195,12 @@ const translations = {
         statusLabel: 'Status Mastera',
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
-        consequenceGoodTitle: 'Sztuka referencyjna "PASS" (Sprawny wzorzec)',
-        consequenceGoodDesc: 'Służy do potwierdzenia poprawności testowania na stacjach FIS. System oczekuje pozytywnego przejścia testu na linii produkcyjnej.',
-        consequenceBadTitle: 'Sztuka referencyjna "FAIL" (Wadliwy wzorzec / Red Rabbit)',
-        consequenceBadDesc: 'Służy do celowej weryfikacji detekcji błędów przez maszynę. System wymaga, aby stacja testowa prawidłowo wykryła defekt i odrzuciła sztukę.',
         validationSnEmpty: 'Numer seryjny (SN) jest wymagany.',
         validationSnValid: 'Numer SN poprawny.',
         validationProcEmpty: 'Wybierz co najmniej jeden proces.',
-        maxCounterLabel: 'Limit Użyć (Max Use)',
+        maxCounterLabel: 'Limit Użyć',
         maxCounterHint: 'Domyślnie: 1000 (zakres: 50–5000)',
-        maxErrorsLabel: 'Limit Błędów (Max Errors)',
+        maxErrorsLabel: 'Limit Błędów',
         maxErrorsHint: 'Domyślnie: 50 (zakres: 5–1000)',
         btnRegisterMaster: 'Zarejestruj Master Sample',
         btnRegistering: 'Tworzenie i rejestracja w FIS...',
@@ -217,9 +233,6 @@ const translations = {
         deleteMailConfirm: 'Czy na pewno chcesz usunąć ten adres e-mail z książki adresowej?',
     },
     EN: {
-        // App title / branding
-        brandSubtitle: 'BorgWarner FIS QA',
-
         // Navigation
         navDashboard: 'DATABASE & AUDIT (DASHBOARD)',
         navCreate: 'ADD NEW MASTER',
@@ -252,11 +265,32 @@ const translations = {
         // Task view presets
         taskAll: 'All',
         taskActionRequired: 'Action Required',
-        taskToReset: 'Needs Reset',
         taskBlocked: 'Blocked (Dead)',
         taskCycle80: '>80% Cycles',
         taskErrorExceeded: 'Errors Exceeded',
         taskMyProcesses: 'My Processes',
+
+        // Blocked Machines View
+        blockedPageTitle: 'Blocked Machines & Production Line Prefixes',
+        blockedPageDesc: 'List of active process blocks. Removing a record restores the machine to production.',
+        blockedSearchPlaceholder: 'Search machine or prefix...',
+        blockedFoundCount: 'Found:',
+        blockedRefresh: 'Refresh',
+        blockedLoadingText: 'Scanning machine block directory...',
+        blockedNoneTitle: 'No blocked machines',
+        blockedNoneDesc: 'All production lines are running without blocks.',
+        blockedColMachine: 'Machine',
+        blockedColPrefix: 'Prefix / Master',
+        blockedColDate: 'Block Date',
+        blockedColAction: 'Action',
+        blockedUnlockBtn: 'Unblock',
+        blockedModalTitle: 'Unblock Machine',
+        blockedModalDesc: 'Are you sure you want to restore this machine to production?',
+        blockedModalMachine: 'Machine',
+        blockedModalPrefix: 'Prefix',
+        blockedModalCancel: 'Cancel',
+        blockedModalConfirm: 'Confirm Unlock',
+        blockedModalPending: 'Unlocking...',
 
         // Stats card details
         statUrgentBlocks: 'urgent blocks',
@@ -375,6 +409,7 @@ const translations = {
         backToDashboard: 'Back to Dashboard',
         singleProcessMode: 'Single Process',
         multiProcessMode: 'Multiple Processes',
+        fisLabel: 'FIS System',
         createTitle: 'Add Master Sample',
         createSingleSub: 'Single process mode — bind golden sample to a single station/line.',
         createMultiSub: 'Multiple processes mode — bind one unit across several production lines/stations.',
@@ -387,14 +422,10 @@ const translations = {
         statusLabel: 'Master Status',
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
-        consequenceGoodTitle: 'Reference unit "PASS" (Golden Sample)',
-        consequenceGoodDesc: 'Used to confirm correct test execution in FIS. System expects a PASS test result on the production line.',
-        consequenceBadTitle: 'Reference unit "FAIL" (Defect Sample / Red Rabbit)',
-        consequenceBadDesc: 'Used to intentionally verify machine defect detection. System requires the test station to correctly detect and reject this unit.',
         validationSnEmpty: 'Serial number (SN) is required.',
         validationSnValid: 'Valid SN format.',
         validationProcEmpty: 'Select at least one process.',
-        maxCounterLabel: 'Max Cycles (Max Use)',
+        maxCounterLabel: 'Max Cycles',
         maxCounterHint: 'Default: 1000 (range: 50–5000)',
         maxErrorsLabel: 'Max Errors Limit',
         maxErrorsHint: 'Default: 50 (range: 5–1000)',
