@@ -26,7 +26,8 @@ import {
     Trash2,
     Ban,
     Check,
-    RefreshCw
+    RefreshCw,
+    X
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
@@ -217,7 +218,7 @@ export const DashboardView: React.FC = () => {
                         </button>
                     </div>
 
-                    {/* Search Input matching PalletX */}
+                    {/* Search Input matching PalletX with clear button */}
                     <div className="relative">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                         <input
@@ -225,8 +226,18 @@ export const DashboardView: React.FC = () => {
                             placeholder={t.searchPlaceholder}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full h-11 pl-10 pr-4 bg-brand-surface border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
+                            className="w-full h-11 pl-10 pr-10 bg-brand-surface border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                         />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-brand-text-muted hover:text-white rounded-lg hover:bg-brand-surface-high transition-colors cursor-pointer"
+                                title="Wyczyść wyszukiwanie"
+                            >
+                                <X size={15} />
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -241,7 +252,11 @@ export const DashboardView: React.FC = () => {
                     <select
                         value={selectedProcess}
                         onChange={(e) => setSelectedProcess(e.target.value)}
-                        className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
+                        className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
+                            selectedProcess
+                                ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
+                                : 'bg-brand-surface-high border-brand-border text-brand-text hover:border-brand-text-muted/50'
+                        }`}
                     >
                         <option value="">{t.allProcesses}</option>
                         {processOptions.map(p => (
@@ -258,7 +273,11 @@ export const DashboardView: React.FC = () => {
                     <select
                         value={selectedStatus}
                         onChange={(e) => setSelectedStatus(e.target.value)}
-                        className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
+                        className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
+                            selectedStatus
+                                ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
+                                : 'bg-brand-surface-high border-brand-border text-brand-text hover:border-brand-text-muted/50'
+                        }`}
                     >
                         <option value="">{t.allStatuses}</option>
                         <option value="GOOD">GOOD</option>
@@ -274,7 +293,11 @@ export const DashboardView: React.FC = () => {
                     <select
                         value={selectedActive}
                         onChange={(e) => setSelectedActive(e.target.value)}
-                        className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
+                        className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
+                            selectedActive !== 'all'
+                                ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
+                                : 'bg-brand-surface-high border-brand-border text-brand-text hover:border-brand-text-muted/50'
+                        }`}
                     >
                         <option value="all">{t.allActivities}</option>
                         <option value="active">{t.onlyActive}</option>
@@ -303,7 +326,11 @@ export const DashboardView: React.FC = () => {
                 <button
                     type="button"
                     onClick={clearFilters}
-                    className="interactive-button h-9 px-3.5 rounded-xl bg-brand-surface-high border border-brand-border hover:border-brand-text-muted/60 text-brand-text hover:text-brand-text text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                    className={`interactive-button h-9 px-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all duration-200 ${
+                        Boolean(searchTerm || selectedProcess || selectedStatus || selectedActive !== 'all')
+                            ? 'bg-indigo-500/20 border-brand-accent text-indigo-300 hover:bg-indigo-500/30 shadow-xs'
+                            : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-brand-text hover:border-brand-text-muted/60'
+                    }`}
                 >
                     <RotateCcw size={13} />
                     <span>{t.clearFilters}</span>
@@ -473,7 +500,7 @@ export const DashboardView: React.FC = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => setHistoryTarget(m)}
-                                                            className="p-1.5 rounded-lg bg-brand-surface-high border border-brand-border text-brand-text-muted hover:text-brand-text hover:border-brand-text-muted/60 hover:scale-110 active:scale-95 transition-all duration-150 cursor-pointer"
+                                                            className="interactive-button p-1.5 rounded-lg bg-brand-surface-high border border-brand-border/80 text-brand-text-muted hover:text-indigo-300 hover:border-brand-accent/50 hover:bg-brand-accent/15 hover:shadow-xs cursor-pointer"
                                                             title="Historia zmian tego mastera"
                                                         >
                                                             <History size={14} />
@@ -487,10 +514,10 @@ export const DashboardView: React.FC = () => {
                                                                 setResetTarget({ units: [m.unit], unitNames: m.unit });
                                                             }}
                                                             disabled={isDead}
-                                                            className={`p-1.5 rounded-lg border transition-all duration-150 cursor-pointer ${
+                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer ${
                                                                 isDead
                                                                     ? 'opacity-30 cursor-not-allowed bg-brand-surface-high border-brand-border text-brand-text-muted/70'
-                                                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:scale-110 active:scale-95'
+                                                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/25 hover:border-amber-400/60 hover:shadow-xs'
                                                             }`}
                                                             title="Resetuj liczniki (wybór cykli lub błędów)"
                                                         >
@@ -501,10 +528,10 @@ export const DashboardView: React.FC = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => setBlockTarget({ units: [m.unit], block: !isDead })}
-                                                            className={`p-1.5 rounded-lg border transition-all duration-150 cursor-pointer ${
+                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer ${
                                                                 isDead
-                                                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:scale-110 active:scale-95'
-                                                                    : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-rose-400 hover:border-rose-500/30 hover:scale-110 active:scale-95'
+                                                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 hover:border-emerald-400/60 hover:shadow-xs'
+                                                                    : 'bg-brand-surface-high border-brand-border/80 text-brand-text-muted hover:text-rose-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:shadow-xs'
                                                             }`}
                                                             title={isDead ? "Aktywuj mastera" : "Zablokuj mastera (isActive=2)"}
                                                         >
@@ -515,7 +542,7 @@ export const DashboardView: React.FC = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => setDeleteTarget(m)}
-                                                            className="p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 hover:scale-110 active:scale-95 transition-all duration-150 cursor-pointer"
+                                                            className="interactive-button p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 hover:border-rose-400/60 hover:shadow-xs cursor-pointer"
                                                             title="Usuń z bazy danych"
                                                         >
                                                             <Trash2 size={14} />

@@ -24,12 +24,29 @@ export const Modal: React.FC<ModalProps> = ({
     const titleId = useId();
     const descriptionId = useId();
 
+    const [isMounted, setIsMounted] = React.useState(isOpen);
+    const [isExiting, setIsExiting] = React.useState(false);
+
     useEffect(() => {
         onCloseRef.current = onClose;
     }, [onClose]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (isOpen) {
+            setIsMounted(true);
+            setIsExiting(false);
+        } else if (isMounted) {
+            setIsExiting(true);
+            const timer = setTimeout(() => {
+                setIsMounted(false);
+                setIsExiting(false);
+            }, 200);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen, isMounted]);
+
+    useEffect(() => {
+        if (!isMounted) return;
 
         const previouslyFocused = document.activeElement instanceof HTMLElement
             ? document.activeElement
@@ -74,9 +91,9 @@ export const Modal: React.FC<ModalProps> = ({
             document.body.style.overflow = originalOverflow;
             previouslyFocused?.focus();
         };
-    }, [isOpen]);
+    }, [isMounted]);
 
-    if (!isOpen) return null;
+    if (!isMounted) return null;
 
     const maxWidthClasses = {
         sm: 'max-w-sm',
@@ -87,7 +104,9 @@ export const Modal: React.FC<ModalProps> = ({
     }[maxWidth];
 
     return createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/80 backdrop-blur-sm animate-modal-backdrop">
+        <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/80 backdrop-blur-sm ${
+            isExiting ? 'animate-modal-backdrop-out' : 'animate-modal-backdrop'
+        }`}>
             <div
                 className="fixed inset-0 cursor-pointer"
                 onClick={onClose}
@@ -101,7 +120,9 @@ export const Modal: React.FC<ModalProps> = ({
                 aria-labelledby={titleId}
                 aria-describedby={description ? descriptionId : undefined}
                 tabIndex={-1}
-                className={`relative w-full ${maxWidthClasses} bg-brand-surface border border-brand-border rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-brand-text animate-modal-pop my-auto`}
+                className={`relative w-full ${maxWidthClasses} bg-brand-surface border border-brand-border/80 rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-brand-text my-auto ${
+                    isExiting ? 'animate-modal-pop-out' : 'animate-modal-pop'
+                }`}
             >
                 <div className="flex items-start justify-between gap-4 pb-3 border-b border-brand-border/60">
                     <div>

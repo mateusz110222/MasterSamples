@@ -378,26 +378,26 @@ export const CreateMasterView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setStatus('GOOD')}
-                                className={`py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                className={`interactive-button py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 ${
                                     status === 'GOOD'
-                                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/10'
-                                        : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-brand-text'
+                                        ? 'bg-gradient-to-r from-emerald-500/25 to-teal-500/15 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)] -translate-y-0.5'
+                                        : 'bg-slate-900/60 border-brand-border/70 text-brand-text-muted hover:text-white hover:border-slate-500 hover:bg-slate-800/60'
                                 }`}
                             >
-                                <CheckCircle2 size={18} />
+                                <CheckCircle2 size={18} className={status === 'GOOD' ? 'animate-scale-in text-emerald-400' : ''} />
                                 <span>GOOD</span>
                             </button>
 
                             <button
                                 type="button"
                                 onClick={() => setStatus('BAD')}
-                                className={`py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                className={`interactive-button py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 ${
                                     status === 'BAD'
-                                        ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-lg shadow-rose-500/10'
-                                        : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-brand-text'
+                                        ? 'bg-gradient-to-r from-rose-500/25 to-pink-500/15 border-rose-500 text-rose-300 ring-2 ring-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.25)] -translate-y-0.5'
+                                        : 'bg-slate-900/60 border-brand-border/70 text-brand-text-muted hover:text-white hover:border-slate-500 hover:bg-slate-800/60'
                                 }`}
                             >
-                                <AlertCircle size={18} />
+                                <AlertCircle size={18} className={status === 'BAD' ? 'animate-scale-in text-rose-400' : ''} />
                                 <span>BAD</span>
                             </button>
                         </div>
@@ -406,31 +406,67 @@ export const CreateMasterView: React.FC = () => {
                     {/* 4. Counters Limits */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                {t.maxCounterLabel}
-                            </label>
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
+                                    {t.maxCounterLabel}
+                                </label>
+                                <div className="flex items-center gap-1">
+                                    {[500, 1000, 2500, 5000].map((preset) => (
+                                        <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => setMaxCounter(preset)}
+                                            className={`interactive-button px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                                                maxCounter === preset
+                                                    ? 'bg-brand-accent text-white shadow-xs'
+                                                    : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'
+                                            }`}
+                                        >
+                                            {preset}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <input
                                 type="number"
                                 min={50}
                                 max={5000}
                                 value={maxCounter}
                                 onChange={(e) => setMaxCounter(parseInt(e.target.value) || 0)}
-                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent"
+                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40"
                             />
                             <p className="text-[10px] text-brand-text-muted font-mono">{t.maxCounterHint}</p>
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                {t.maxErrorsLabel}
-                            </label>
+                            <div className="flex items-center justify-between">
+                                <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
+                                    {t.maxErrorsLabel}
+                                </label>
+                                <div className="flex items-center gap-1">
+                                    {[10, 25, 50, 100].map((preset) => (
+                                        <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => setMaxErrors(preset)}
+                                            className={`interactive-button px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                                                maxErrors === preset
+                                                    ? 'bg-brand-accent text-white shadow-xs'
+                                                    : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'
+                                            }`}
+                                        >
+                                            {preset}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <input
                                 type="number"
                                 min={5}
                                 max={1000}
                                 value={maxErrors}
                                 onChange={(e) => setMaxErrors(parseInt(e.target.value) || 0)}
-                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent"
+                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40"
                             />
                             <p className="text-[10px] text-brand-text-muted font-mono">{t.maxErrorsHint}</p>
                         </div>
