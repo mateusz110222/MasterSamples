@@ -104,7 +104,9 @@ const translations = {
 
         // Block modal
         blockModalTitle: 'Zablokuj Mastera (Dead)',
+        blockModalWarningHeader: 'Ostrzeżenie o zablokowaniu!',
         activateModalTitle: 'Aktywuj Mastera',
+        activateModalHeader: 'Przywrócenie do produkcji',
         blockModalWarn: 'Zablokowanie mastera (isActive = 2) uniemożliwi resetowanie jego liczników i zablokuje dopuszczenie do procesów produkcyjnych.',
         activateModalWarn: 'Czy na pewno chcesz przywrócić mastera do stanu aktywnego (isActive = 1)?',
 
@@ -271,7 +273,9 @@ const translations = {
 
         // Block modal
         blockModalTitle: 'Block Master Sample (Dead)',
+        blockModalWarningHeader: 'Block Warning!',
         activateModalTitle: 'Activate Master Sample',
+        activateModalHeader: 'Restore to Production',
         blockModalWarn: 'Blocking the master (isActive = 2) prevents counter resets and denies process admission.',
         activateModalWarn: 'Are you sure you want to reactivate this master sample (isActive = 1)?',
 

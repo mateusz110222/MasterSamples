@@ -132,16 +132,53 @@ async function run() {
         if (await cancelBtn.isVisible()) {
             console.log('Testing modal exit animation: clicking Anuluj...');
             await cancelBtn.click();
-            // Capture mid-animation at 100ms
-            await page.waitForTimeout(100);
-            const exitShot = path.join(screenshotDir, '03d_modal_exit_animation.png');
-            await page.screenshot({ path: exitShot });
-            console.log('Saved modal exit animation screenshot to:', exitShot);
+            await page.waitForTimeout(400);
+        }
+    }
+
+    // 2b. Test Block Modal (Dead) with refined warning box & no flip on exit
+    const blockButtons = page.locator('button[title*="Zablokuj"]');
+    if (await blockButtons.count() > 0) {
+        console.log('Opening Block modal...');
+        await blockButtons.first().click();
+        await page.waitForTimeout(400);
+        const blockShot = path.join(screenshotDir, '02b_enhanced_block_modal.png');
+        await page.screenshot({ path: blockShot });
+        console.log('Saved ENHANCED block modal screenshot to:', blockShot);
+
+        // Click Anuluj and capture mid-exit at 80ms
+        const cancelBlockBtn = page.locator('div[role="dialog"] button:has-text("Anuluj")');
+        if (await cancelBlockBtn.isVisible()) {
+            console.log('Clicking Anuluj on Block modal to verify exit state...');
+            await cancelBlockBtn.click();
+            await page.waitForTimeout(60);
+            const exitBlockShot = path.join(screenshotDir, '02b_block_modal_exiting.png');
+            await page.screenshot({ path: exitBlockShot });
+            console.log('Saved Block modal exiting screenshot to:', exitBlockShot);
+
+            // Assert that during exit, the modal does NOT contain "Przywrócenie do produkcji"
+            const dialogText = await page.locator('div[role="dialog"]').innerText().catch(() => '');
+            if (dialogText.includes('Przywrócenie do produkcji') || dialogText.includes('Aktywuj Mastera')) {
+                throw new Error('FAIL: Modal switched to activate state during exit animation!');
+            } else {
+                console.log('SUCCESS: Modal maintained block state during exit animation!');
+            }
             await page.waitForTimeout(300);
         }
     }
 
-    // 3. Test Create Master View with presets
+    // 2c. Test Select dropdowns (Paletki styling) on Dashboard
+    const processSelect = page.locator('select').first();
+    if (await processSelect.isVisible()) {
+        console.log('Focusing and interacting with Dashboard Select...');
+        await processSelect.focus();
+        await page.waitForTimeout(300);
+        const selectShot = path.join(screenshotDir, '02c_dashboard_select_focused.png');
+        await page.screenshot({ path: selectShot });
+        console.log('Saved Dashboard Select screenshot to:', selectShot);
+    }
+
+    // 3. Test Create Master View with input click stability (no jumping div!)
     console.log('Navigating to #/create ...');
     await page.goto('http://10.142.11.20/custom/matz/MasterSamples/#/create', { waitUntil: 'domcontentloaded', timeout: 10000 });
     await page.waitForTimeout(1200);
@@ -150,12 +187,35 @@ async function run() {
     await page.screenshot({ path: createShot });
     console.log('Saved NEW Create Master with presets screenshot to:', createShot);
 
+    // Test clicking on serial number input (verify no jump)
+    const snInput = page.locator('input[placeholder*="np. 1B"]');
+    if (await snInput.isVisible()) {
+        console.log('Clicking Serial Number input...');
+        await snInput.click();
+        await page.waitForTimeout(300);
+        const inputClickedShot = path.join(screenshotDir, '04b_create_sn_input_focused.png');
+        await page.screenshot({ path: inputClickedShot });
+        console.log('Saved SN input focused screenshot to:', inputClickedShot);
+    }
+
+    // Test clicking BAD status button
+    const badBtn = page.locator('button:has-text("BAD")');
+    if (await badBtn.isVisible()) {
+        console.log('Clicking BAD status button...');
+        await badBtn.click();
+        await page.waitForTimeout(300);
+        const badClickedShot = path.join(screenshotDir, '04c_create_bad_clicked.png');
+        await page.screenshot({ path: badClickedShot });
+        console.log('Saved BAD clicked screenshot to:', badClickedShot);
+    }
+
     // Test clicking preset [2500]
     const presetBtn = page.locator('button:has-text("2500")');
     if (await presetBtn.isVisible()) {
+        console.log('Clicking 2500 preset button...');
         await presetBtn.click();
         await page.waitForTimeout(300);
-        const presetClickedShot = path.join(screenshotDir, '04b_preset_clicked.png');
+        const presetClickedShot = path.join(screenshotDir, '04d_preset_clicked.png');
         await page.screenshot({ path: presetClickedShot });
         console.log('Saved preset clicked screenshot to:', presetClickedShot);
     }

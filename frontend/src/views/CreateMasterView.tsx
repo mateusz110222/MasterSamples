@@ -187,7 +187,7 @@ export const CreateMasterView: React.FC = () => {
             </div>
 
             {/* Main Card */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 hover-lift animate-slide-up">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 animate-slide-up">
                 <div className="border-b border-brand-border/70 pb-4">
                     <h2 className="text-xl font-bold text-brand-text tracking-tight flex items-center gap-2.5">
                         <PlusCircle className="text-brand-accent transition-transform duration-300 group-hover:rotate-90" size={22} />
@@ -378,9 +378,9 @@ export const CreateMasterView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setStatus('GOOD')}
-                                className={`interactive-button py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 ${
+                                className={`py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-150 ${
                                     status === 'GOOD'
-                                        ? 'bg-gradient-to-r from-emerald-500/25 to-teal-500/15 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)] -translate-y-0.5'
+                                        ? 'bg-gradient-to-r from-emerald-500/25 to-teal-500/15 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
                                         : 'bg-slate-900/60 border-brand-border/70 text-brand-text-muted hover:text-white hover:border-slate-500 hover:bg-slate-800/60'
                                 }`}
                             >
@@ -391,9 +391,9 @@ export const CreateMasterView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setStatus('BAD')}
-                                className={`interactive-button py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 ${
+                                className={`py-3 px-4 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-150 ${
                                     status === 'BAD'
-                                        ? 'bg-gradient-to-r from-rose-500/25 to-pink-500/15 border-rose-500 text-rose-300 ring-2 ring-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.25)] -translate-y-0.5'
+                                        ? 'bg-gradient-to-r from-rose-500/25 to-pink-500/15 border-rose-500 text-rose-300 ring-2 ring-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
                                         : 'bg-slate-900/60 border-brand-border/70 text-brand-text-muted hover:text-white hover:border-slate-500 hover:bg-slate-800/60'
                                 }`}
                             >
@@ -416,7 +416,7 @@ export const CreateMasterView: React.FC = () => {
                                             key={preset}
                                             type="button"
                                             onClick={() => setMaxCounter(preset)}
-                                            className={`interactive-button px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
                                                 maxCounter === preset
                                                     ? 'bg-brand-accent text-white shadow-xs'
                                                     : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'
@@ -449,7 +449,7 @@ export const CreateMasterView: React.FC = () => {
                                             key={preset}
                                             type="button"
                                             onClick={() => setMaxErrors(preset)}
-                                            className={`interactive-button px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
                                                 maxErrors === preset
                                                     ? 'bg-brand-accent text-white shadow-xs'
                                                     : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'

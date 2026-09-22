@@ -1,4 +1,5 @@
-import { AlertTriangle, RefreshCw, RotateCcw, Check, Ban, Trash2, ExternalLink } from 'lucide-react';
+import { useRef } from 'react';
+import { AlertTriangle, RefreshCw, RotateCcw, Check, CheckCircle2, Ban, Trash2, ExternalLink } from 'lucide-react';
 import { getFisUnitHistoryUrl } from '../../api/fisApi';
 import type { TranslationsType } from '../../i18n/LanguageContext';
 import type { HistoryRecord, MasterUnit, ResetType } from '../../types';
@@ -92,6 +93,23 @@ export const DashboardModals = ({
     history,
     historyLoading,
 }: DashboardModalsProps) => {
+    // Preserve last active target across exit animations (prevent flicker/flipping when parent sets target to null)
+    const lastBlockTargetRef = useRef(blockTarget);
+    if (blockTarget) lastBlockTargetRef.current = blockTarget;
+    const activeBlockTarget = blockTarget ?? lastBlockTargetRef.current;
+
+    const lastResetTargetRef = useRef(resetTarget);
+    if (resetTarget) lastResetTargetRef.current = resetTarget;
+    const activeResetTarget = resetTarget ?? lastResetTargetRef.current;
+
+    const lastDeleteTargetRef = useRef(deleteTarget);
+    if (deleteTarget) lastDeleteTargetRef.current = deleteTarget;
+    const activeDeleteTarget = deleteTarget ?? lastDeleteTargetRef.current;
+
+    const lastHistoryTargetRef = useRef(historyTarget);
+    if (historyTarget) lastHistoryTargetRef.current = historyTarget;
+    const activeHistoryTarget = historyTarget ?? lastHistoryTargetRef.current;
+
     const resetOptions = [
         {
             value: 'all' as const,
@@ -124,19 +142,19 @@ export const DashboardModals = ({
 
     return (
         <>
-            <Modal isOpen={Boolean(resetTarget)} onClose={closeReset} title={t.resetModalTitle} description={`${t.resetModalDesc} ${resetTarget?.unitNames ?? ''}`}>
-                <div className="space-y-5">
-                    <div className="space-y-3 rounded-2xl border border-brand-border/70 bg-brand-bg/90 p-4 shadow-inner">
-                        <p className="text-xs font-bold uppercase tracking-wider text-brand-text/90 flex items-center justify-between">
-                            <span>Wybierz rodzaj resetu:</span>
-                            <span className="text-[10px] font-normal text-brand-text-muted">Kliknij opcję aby zaznaczyć</span>
-                        </p>
-                        {resetOptions.map((opt) => {
+            <Modal
+                isOpen={Boolean(resetTarget)}
+                onClose={closeReset}
+                title={t.resetModalTitle}
+                description={`${t.resetModalDesc} ${activeResetTarget?.unitNames ?? ''}`}
+            >
+                <div className="space-y-4">
+                    <div className="space-y-2.5">
+                        {resetOptions.map(opt => {
                             const isSelected = resetType === opt.value;
                             return (
                                 <label
                                     key={opt.value}
-                                    onClick={() => setResetType(opt.value)}
                                     className={`relative flex cursor-pointer items-start gap-3.5 rounded-xl border p-3.5 transition-all duration-200 select-none ${
                                         isSelected
                                             ? opt.selectedClass
@@ -181,7 +199,7 @@ export const DashboardModals = ({
                         confirmLabel={resetMutation.isPending ? t.resetting : t.confirmReset}
                         pending={resetMutation.isPending}
                         onCancel={closeReset}
-                        onConfirm={() => resetTarget && resetMutation.mutate({ units: resetTarget.units, type: resetType })}
+                        onConfirm={() => activeResetTarget && resetMutation.mutate({ units: activeResetTarget.units, type: resetType })}
                         icon={<RotateCcw size={15} />}
                     />
                 </div>
@@ -190,30 +208,52 @@ export const DashboardModals = ({
             <Modal
                 isOpen={Boolean(blockTarget)}
                 onClose={closeBlock}
-                title={blockTarget?.block ? t.blockModalTitle : t.activateModalTitle}
-                description={`Zmiana stanu aktywności dla: ${blockTarget?.units.join(', ') ?? ''}`}
+                title={activeBlockTarget?.block ? t.blockModalTitle : t.activateModalTitle}
+                description={`Zmiana stanu aktywności dla: ${activeBlockTarget?.units.join(', ') ?? ''}`}
             >
-                <div className="space-y-4">
-                    <p className="text-sm text-brand-text leading-relaxed">{blockTarget?.block ? t.blockModalWarn : t.activateModalWarn}</p>
+                <div className="space-y-5">
+                    {activeBlockTarget?.block ? (
+                        <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
+                            <Ban className="mt-0.5 shrink-0 text-rose-400" size={20} />
+                            <div className="space-y-1">
+                                <p className="text-sm font-bold text-rose-300 tracking-tight">{t.blockModalWarningHeader}</p>
+                                <p className="text-[13px] leading-relaxed text-rose-100/90 font-medium">
+                                    {t.blockModalWarn}
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-3.5 text-emerald-200 shadow-xs">
+                            <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-400" size={20} />
+                            <div className="space-y-1">
+                                <p className="text-sm font-bold text-emerald-300 tracking-tight">{t.activateModalHeader}</p>
+                                <p className="text-[13px] leading-relaxed text-emerald-100/90 font-medium">
+                                    {t.activateModalWarn}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     <ModalActions
                         cancelLabel={t.cancel}
                         confirmLabel={blockMutation.isPending ? t.saving : t.confirm}
                         pending={blockMutation.isPending}
                         onCancel={closeBlock}
-                        onConfirm={() => blockTarget && blockMutation.mutate(blockTarget)}
-                        destructive={Boolean(blockTarget?.block)}
-                        icon={blockTarget?.block ? <Ban size={15} /> : <Check size={15} />}
+                        onConfirm={() => activeBlockTarget && blockMutation.mutate(activeBlockTarget)}
+                        destructive={Boolean(activeBlockTarget?.block)}
+                        icon={activeBlockTarget?.block ? <Ban size={16} /> : <Check size={16} />}
                     />
                 </div>
             </Modal>
 
-            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={`Fizyczne usunięcie rekordu: ${deleteTarget?.unit ?? ''}`}>
-                <div className="space-y-4">
-                    <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-4 text-xs text-rose-200">
-                        <AlertTriangle className="mt-0.5 shrink-0 text-rose-400" size={18} />
-                        <div>
-                            <p className="font-bold text-rose-300">{t.deleteModalWarning}</p>
-                            <p className="mt-1">Rekord <strong className="font-mono text-white underline">{deleteTarget?.unit}</strong> {t.deleteModalText}</p>
+            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={`Fizyczne usunięcie rekordu: ${activeDeleteTarget?.unit ?? ''}`}>
+                <div className="space-y-5">
+                    <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
+                        <AlertTriangle className="mt-0.5 shrink-0 text-rose-400" size={20} />
+                        <div className="space-y-1">
+                            <p className="text-sm font-bold text-rose-300 tracking-tight">{t.deleteModalWarning}</p>
+                            <p className="text-[13px] leading-relaxed text-rose-100/90 font-medium">
+                                Rekord <strong className="font-mono text-white underline font-bold">{activeDeleteTarget?.unit}</strong> {t.deleteModalText}
+                            </p>
                         </div>
                     </div>
                     <ModalActions
@@ -221,19 +261,19 @@ export const DashboardModals = ({
                         confirmLabel={deleteMutation.isPending ? t.deleting : t.confirmDelete}
                         pending={deleteMutation.isPending}
                         onCancel={closeDelete}
-                        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.unit)}
+                        onConfirm={() => activeDeleteTarget && deleteMutation.mutate(activeDeleteTarget.unit)}
                         destructive
-                        icon={<Trash2 size={15} />}
+                        icon={<Trash2 size={16} />}
                     />
                 </div>
             </Modal>
 
-            <Modal isOpen={Boolean(historyTarget)} onClose={closeHistory} title={`${t.historyModalTitle} ${historyTarget?.unit ?? ''}`} description={t.historyModalSub} maxWidth="2xl">
+            <Modal isOpen={Boolean(historyTarget)} onClose={closeHistory} title={`${t.historyModalTitle} ${activeHistoryTarget?.unit ?? ''}`} description={t.historyModalSub} maxWidth="2xl">
                 <div className="space-y-4">
                     {historyLoading ? (
                         <div className="py-8 text-center font-mono text-xs text-brand-text-muted"><RefreshCw className="mr-2 inline-block animate-spin text-brand-accent" size={18} />Ładowanie historii zdarzeń...</div>
                     ) : history.length === 0 ? (
-                        <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {historyTarget?.unit}.</p>
+                        <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {activeHistoryTarget?.unit}.</p>
                     ) : (
                         <div className="max-h-[50vh] overflow-x-auto rounded-xl border border-brand-border/60">
                             <table className="w-full border-collapse text-left font-mono text-xs">
