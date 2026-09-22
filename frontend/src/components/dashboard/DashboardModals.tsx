@@ -116,7 +116,8 @@ export const DashboardModals = ({
             label: t.resetOptBoth,
             description: t.resetOptBothSub,
             recommended: true,
-            selectedClass: 'border-indigo-500 bg-gradient-to-r from-indigo-500/25 via-indigo-600/20 to-purple-600/15 ring-2 ring-indigo-500/50 shadow-[0_0_22px_rgba(99,102,241,0.25)] -translate-y-0.5',
+            selectedClass: 'border-indigo-500 bg-gradient-to-r from-indigo-500/25 via-indigo-600/20 to-purple-600/15 ring-2 ring-indigo-500/60 shadow-[0_0_22px_rgba(99,102,241,0.3)]',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-indigo-400 hover:bg-indigo-950/30 hover:shadow-[0_0_16px_rgba(99,102,241,0.2)]',
             radioBorder: 'border-indigo-400 bg-indigo-500/20',
             dotColor: 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.9)]',
         },
@@ -125,7 +126,8 @@ export const DashboardModals = ({
             label: t.resetOptCycles,
             description: t.resetOptCyclesSub,
             recommended: false,
-            selectedClass: 'border-amber-500 bg-gradient-to-r from-amber-500/25 via-amber-600/20 to-orange-600/15 ring-2 ring-amber-500/50 shadow-[0_0_22px_rgba(245,158,11,0.25)] -translate-y-0.5',
+            selectedClass: 'border-amber-500 bg-gradient-to-r from-amber-500/25 via-amber-600/20 to-orange-600/15 ring-2 ring-amber-500/60 shadow-[0_0_22px_rgba(245,158,11,0.3)]',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-amber-400 hover:bg-amber-950/30 hover:shadow-[0_0_16px_rgba(245,158,11,0.2)]',
             radioBorder: 'border-amber-400 bg-amber-500/20',
             dotColor: 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]',
         },
@@ -134,7 +136,8 @@ export const DashboardModals = ({
             label: t.resetOptErrors,
             description: t.resetOptErrorsSub,
             recommended: false,
-            selectedClass: 'border-rose-500 bg-gradient-to-r from-rose-500/25 via-rose-600/20 to-pink-600/15 ring-2 ring-rose-500/50 shadow-[0_0_22px_rgba(244,63,94,0.25)] -translate-y-0.5',
+            selectedClass: 'border-rose-500 bg-gradient-to-r from-rose-500/25 via-rose-600/20 to-pink-600/15 ring-2 ring-rose-500/60 shadow-[0_0_22px_rgba(244,63,94,0.3)]',
+            unselectedClass: 'border-slate-700/90 bg-slate-900/70 hover:border-rose-400 hover:bg-rose-950/30 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)]',
             radioBorder: 'border-rose-400 bg-rose-500/20',
             dotColor: 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.9)]',
         },
@@ -156,9 +159,7 @@ export const DashboardModals = ({
                                 <label
                                     key={opt.value}
                                     className={`relative flex cursor-pointer items-start gap-3.5 rounded-xl border p-3.5 transition-all duration-200 select-none ${
-                                        isSelected
-                                            ? opt.selectedClass
-                                            : 'border-brand-border/70 bg-slate-900/60 hover:bg-slate-800/70 hover:border-slate-500 hover:-translate-y-0.5 hover:shadow-md'
+                                        isSelected ? opt.selectedClass : opt.unselectedClass
                                     }`}
                                 >
                                     <input

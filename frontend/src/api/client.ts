@@ -20,6 +20,16 @@ export class ApiError extends Error {
     }
 }
 
+let cachedSessionUser = '';
+
+export function setSessionUser(uid: string): void {
+    cachedSessionUser = uid.trim();
+}
+
+export function getSessionUser(): string {
+    return cachedSessionUser;
+}
+
 export async function apiRequest<T = unknown>(
     url: string,
     params: Record<string, string | number | boolean | undefined> = {},
@@ -34,11 +44,17 @@ export async function apiRequest<T = unknown>(
         }
     });
 
+    const userHeaders: Record<string, string> = {};
+    if (cachedSessionUser) {
+        userHeaders['X-User'] = cachedSessionUser;
+    }
+
     const response = await fetch(urlObj.toString(), {
         ...fetchOptions,
         headers: {
             'Accept': 'application/json',
             ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...userHeaders,
             ...headers,
         },
     });

@@ -46,3 +46,22 @@ test('CSV escapes quotes and spreadsheet formulas', () => {
     assert.match(csv, /"'=2\+2"/);
     assert.match(csv, /"SMT, ""AOI"""/);
 });
+
+test('taskPreset filters correctly for action_required, to_reset, and blocked', () => {
+    const units = [
+        master({ unit: 'NORMAL', currentCounter: 10, maxCounter: 100, errorCounter: 0, isactive: 1 }),
+        master({ unit: 'CYCLE_EXCEEDED', currentCounter: 100, maxCounter: 100, errorCounter: 0, isactive: 1 }),
+        master({ unit: 'ERROR_EXCEEDED', currentCounter: 10, maxCounter: 100, errorCounter: 10, errorMaxCounter: 10, isactive: 1 }),
+        master({ unit: 'BLOCKED_UNIT', currentCounter: 0, maxCounter: 100, errorCounter: 0, isactive: 2 }),
+        master({ unit: 'CYCLE_80', currentCounter: 85, maxCounter: 100, errorCounter: 0, isactive: 1 }),
+    ];
+
+    const actionRequired = filterMasters(units, { searchTerm: '', process: '', status: '', activity: 'all', taskPreset: 'action_required' });
+    assert.deepEqual(actionRequired.map(u => u.unit), ['CYCLE_EXCEEDED', 'ERROR_EXCEEDED', 'BLOCKED_UNIT']);
+
+    const toReset = filterMasters(units, { searchTerm: '', process: '', status: '', activity: 'all', taskPreset: 'to_reset' });
+    assert.deepEqual(toReset.map(u => u.unit), ['CYCLE_EXCEEDED', 'ERROR_EXCEEDED', 'CYCLE_80']);
+
+    const blocked = filterMasters(units, { searchTerm: '', process: '', status: '', activity: 'all', taskPreset: 'blocked' });
+    assert.deepEqual(blocked.map(u => u.unit), ['BLOCKED_UNIT']);
+});

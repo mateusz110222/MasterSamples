@@ -84,7 +84,7 @@ async function run() {
     }
 
     // 2. Open Reset Modal
-    const resetButtons = page.locator('button[title*="Resetuj liczniki"]');
+    const resetButtons = page.locator('tbody tr button:has-text("Reset")');
     const resetBtnCount = await resetButtons.count();
     console.log(`Found ${resetBtnCount} reset buttons in table.`);
 
@@ -198,26 +198,39 @@ async function run() {
         console.log('Saved SN input focused screenshot to:', inputClickedShot);
     }
 
-    // Test clicking BAD status button
+    // Test clicking BAD status button to view consequence card
     const badBtn = page.locator('button:has-text("BAD")');
     if (await badBtn.isVisible()) {
-        console.log('Clicking BAD status button...');
+        console.log('Clicking BAD status button to check consequence card...');
         await badBtn.click();
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
         const badClickedShot = path.join(screenshotDir, '04c_create_bad_clicked.png');
         await page.screenshot({ path: badClickedShot });
         console.log('Saved BAD clicked screenshot to:', badClickedShot);
     }
 
-    // Test clicking preset [2500]
-    const presetBtn = page.locator('button:has-text("2500")');
-    if (await presetBtn.isVisible()) {
-        console.log('Clicking 2500 preset button...');
-        await presetBtn.click();
-        await page.waitForTimeout(300);
-        const presetClickedShot = path.join(screenshotDir, '04d_preset_clicked.png');
-        await page.screenshot({ path: presetClickedShot });
-        console.log('Saved preset clicked screenshot to:', presetClickedShot);
+    // 4. Test History View with Date Filters
+    console.log('Navigating to #/history ...');
+    await page.goto('http://10.142.11.20/custom/matz/MasterSamples/#/history', { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await page.waitForTimeout(1500);
+
+    const histShot = path.join(screenshotDir, '07_history_with_date_filters.png');
+    await page.screenshot({ path: histShot });
+    console.log('Saved updated History View screenshot to:', histShot);
+
+    // 5. Test Dashboard Task Presets
+    console.log('Returning to Dashboard to test Task Presets...');
+    await page.goto('http://10.142.11.20/custom/matz/MasterSamples/#/', { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await page.waitForTimeout(1500);
+
+    const actionReqPill = page.locator('button:has-text("Wymaga Działania")');
+    if (await actionReqPill.isVisible()) {
+        console.log('Clicking Wymaga Działania preset pill...');
+        await actionReqPill.click();
+        await page.waitForTimeout(500);
+        const actionReqShot = path.join(screenshotDir, '01c_action_required_preset.png');
+        await page.screenshot({ path: actionReqShot });
+        console.log('Saved Wymaga Działania preset screenshot to:', actionReqShot);
     }
 
     await browser.close();

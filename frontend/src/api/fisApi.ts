@@ -1,4 +1,4 @@
-import { apiRequest, ROUTER_API_BASE, AUTH_API_BASE, API_BASE } from './client';
+import { apiRequest, ROUTER_API_BASE, AUTH_API_BASE, API_BASE, setSessionUser } from './client';
 import { UserInfo, ProcessTagItem } from '../types';
 
 interface UserInfoPayload {
@@ -64,17 +64,23 @@ export const fisApi = {
         try {
             const res = await fetch(AUTH_API_BASE);
             if (res.ok) {
-                const text = await res.text();
-                const match = text.match(/"([^"]+)"/);
-                if (match && match[1]) {
-                    cleanUid = match[1].trim();
-                } else if (text.trim() && !text.includes('<')) {
-                    cleanUid = text.trim().replace(/^["']|["']$/g, '');
+                const raw = await res.text();
+                try {
+                    const data = JSON.parse(raw);
+                    cleanUid = typeof data === 'object' && data !== null
+                        ? (data.user || data.userId || '')
+                        : String(data);
+                } catch {
+                    // Fallback jeśli na serwerze pozostała odpowiedź tekstowa / var_dump
+                    const match = raw.match(/"([^"]+)"/);
+                    cleanUid = match ? match[1].trim() : raw.trim();
                 }
             }
         } catch (e) {
             console.warn('[Auth] Could not reach GetUserName.php', e);
         }
+
+        setSessionUser(cleanUid);
 
         if (!cleanUid) {
             return {

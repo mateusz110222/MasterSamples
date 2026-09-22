@@ -218,11 +218,19 @@ export const CreateMasterView: React.FC = () => {
                 )}
 
                 <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-5">
-                    {/* 1. Serial Number */}
+                    {/* 1. Serial Number with inline validation */}
                     <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                            {t.serialNumberLabel} <span className="text-rose-400">*</span>
-                        </label>
+                        <div className="flex items-center justify-between">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
+                                {t.serialNumberLabel} <span className="text-rose-400">*</span>
+                            </label>
+                            {serialNumber.trim() && (
+                                <span className="text-[11px] font-mono text-brand-accent font-semibold flex items-center gap-1">
+                                    <Check size={12} className="text-emerald-400" />
+                                    <span>{serialNumber.trim().length} znaków</span>
+                                </span>
+                            )}
+                        </div>
                         <input
                             type="text"
                             required
@@ -231,6 +239,16 @@ export const CreateMasterView: React.FC = () => {
                             onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
                             className="w-full px-4 py-3 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-base font-bold placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent transition-colors"
                         />
+                        {!serialNumber.trim() ? (
+                            <p className="text-[11px] text-brand-text-muted/70 font-sans">
+                                Wymagany unikalny numer seryjny sztuki wzorcowej.
+                            </p>
+                        ) : (
+                            <p className="text-[11px] text-emerald-400/90 font-sans flex items-center gap-1">
+                                <Check size={12} />
+                                <span>Gotowy do rejestracji w FIS jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
+                            </p>
+                        )}
                     </div>
 
                     {/* 2. Process Selection: Searchable Select for Single, or Filtered Pool for Multiple */}
@@ -370,7 +388,7 @@ export const CreateMasterView: React.FC = () => {
                     )}
 
                     {/* 3. Status Toggle - ONLY "GOOD" and "BAD" as requested */}
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                         <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.statusLabel} <span className="text-rose-400">*</span>
                         </label>
@@ -400,6 +418,29 @@ export const CreateMasterView: React.FC = () => {
                                 <AlertCircle size={18} className={status === 'BAD' ? 'animate-scale-in text-rose-400' : ''} />
                                 <span>BAD</span>
                             </button>
+                        </div>
+
+                        {/* Status Consequence Preview Card */}
+                        <div className={`p-3.5 rounded-xl border transition-all duration-200 text-xs animate-scale-in ${
+                            status === 'GOOD'
+                                ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
+                                : 'bg-rose-950/20 border-rose-500/40 text-rose-200'
+                        }`}>
+                            <div className="flex items-start gap-2.5">
+                                {status === 'GOOD' ? (
+                                    <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                                ) : (
+                                    <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                                )}
+                                <div className="space-y-1">
+                                    <span className="font-bold text-xs uppercase tracking-wide block">
+                                        {status === 'GOOD' ? t.consequenceGoodTitle : t.consequenceBadTitle}
+                                    </span>
+                                    <p className="text-[11px] text-brand-text-muted leading-relaxed font-sans">
+                                        {status === 'GOOD' ? t.consequenceGoodDesc : t.consequenceBadDesc}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

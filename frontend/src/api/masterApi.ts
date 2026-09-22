@@ -78,7 +78,17 @@ export const masterApi = {
         return res.data || [];
     },
 
-    getHistory: async (filters: { unit?: string; operation?: string; user?: string; limit?: number; offset?: number } = {}): Promise<HistoryRecord[]> => {
+    getHistory: async (filters: {
+        unit?: string;
+        operation?: string;
+        user?: string;
+        process?: string;
+        status?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        limit?: number;
+        offset?: number;
+    } = {}): Promise<HistoryRecord[]> => {
         const res = await apiRequest<HistoryRecord[]>(API_BASE, { job: 'GetHistory', ...filters });
         return res.data || [];
     }

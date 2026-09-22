@@ -16,6 +16,7 @@ import {
     splitProcesses,
     type MasterSortField,
     type SortDirection,
+    type TaskPreset,
 } from '../lib/masterUtils';
 import {
     Plus,
@@ -27,12 +28,17 @@ import {
     Ban,
     Check,
     RefreshCw,
-    X
+    X,
+    AlertTriangle,
+    Filter,
+    Gauge,
+    User,
+    AlertCircle,
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
     const navigate = useNavigate();
-    const { canEdit } = useAuth();
+    const { canEdit, user } = useAuth();
     const { t } = useLanguage();
 
     // Filters matching PalletX
@@ -40,6 +46,7 @@ export const DashboardView: React.FC = () => {
     const [selectedProcess, setSelectedProcess] = useState('');
     const [selectedStatus, setSelectedStatus] = useState('');
     const [selectedActive, setSelectedActive] = useState('all');
+    const [taskPreset, setTaskPreset] = useState<TaskPreset>('all');
     const [pageSize, setPageSize] = useState<number>(50);
 
     // Interactive column sorting
@@ -76,6 +83,32 @@ export const DashboardView: React.FC = () => {
         return { total, active, blocked, pctActive };
     }, [masters]);
 
+    // Task Preset Counts
+    const presetCounts = useMemo(() => {
+        let actionRequired = 0;
+        let toReset = 0;
+        let cycles80 = 0;
+        let errorsExceeded = 0;
+        let myProcesses = 0;
+        const currentUid = user?.uid?.toLowerCase() || '';
+
+        masters.forEach(m => {
+            const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
+            const errorExceeded = m.errorMaxCounter > 0 && m.errorCounter >= m.errorMaxCounter;
+            const cycle80 = m.maxCounter > 0 && (m.currentCounter / m.maxCounter) >= 0.8;
+            const hasErrors = m.errorCounter > 0;
+            const isDead = m.isactive === 2;
+
+            if (cycleExceeded || errorExceeded || isDead) actionRequired++;
+            if (cycle80 || hasErrors || cycleExceeded || errorExceeded) toReset++;
+            if (cycle80) cycles80++;
+            if (errorExceeded) errorsExceeded++;
+            if (currentUid && m.user?.toLowerCase().includes(currentUid)) myProcesses++;
+        });
+
+        return { actionRequired, toReset, cycles80, errorsExceeded, myProcesses };
+    }, [masters, user?.uid]);
+
     // Unique process list
     const processOptions = useMemo(() => {
         const set = new Set<string>();
@@ -92,8 +125,10 @@ export const DashboardView: React.FC = () => {
             process: selectedProcess,
             status: selectedStatus,
             activity: selectedActive,
+            taskPreset,
+            currentUser: user?.uid,
         });
-    }, [masters, searchTerm, selectedProcess, selectedStatus, selectedActive]);
+    }, [masters, searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, user?.uid]);
 
     // Sorted data
     const sortedMasters = useMemo(() => {
@@ -119,6 +154,7 @@ export const DashboardView: React.FC = () => {
         setSelectedProcess('');
         setSelectedStatus('');
         setSelectedActive('all');
+        setTaskPreset('all');
     };
 
     // CSV Export
@@ -175,18 +211,50 @@ export const DashboardView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Stat 2: SERWIS / ZABLOKOWANE */}
-                <div className={`lg:col-span-3 bg-brand-surface border border-brand-border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift animate-slide-up stagger-2 ${
-                    stats.blocked > 0 ? 'border-rose-900/40 shadow-rose-950/20' : ''
-                }`}>
-                    <span className="text-xs font-bold uppercase tracking-wider text-brand-text-muted">{t.statServiceBlocked}</span>
-                    <div className="my-2">
+                {/* Stat 2: SERWIS / ZABLOKOWANE (Clickable Operational Alert) */}
+                <div
+                    onClick={() => {
+                        if (stats.blocked > 0) {
+                            setTaskPreset(prev => prev === 'blocked' ? 'all' : 'blocked');
+                        }
+                    }}
+                    className={`lg:col-span-3 bg-brand-surface border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift animate-slide-up stagger-2 transition-all select-none ${
+                        stats.blocked > 0 ? 'cursor-pointer' : ''
+                    } ${
+                        taskPreset === 'blocked'
+                            ? 'border-rose-500 ring-2 ring-rose-500/40 bg-rose-950/20'
+                            : stats.blocked > 0
+                                ? 'border-rose-900/50 hover:border-rose-500/60 shadow-rose-950/20'
+                                : 'border-brand-border'
+                    }`}
+                    title={stats.blocked > 0 ? "Kliknij, aby wyświetlić listę zablokowanych maszyn" : undefined}
+                >
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-brand-text-muted">{t.statServiceBlocked}</span>
+                        {stats.blocked > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+                                <AlertTriangle size={11} />
+                                {t.statUrgentBlocks}
+                            </span>
+                        )}
+                    </div>
+                    <div className="my-2 flex items-baseline gap-2">
                         <span className={`text-3xl sm:text-4xl font-extrabold font-mono tracking-tight transition-transform duration-300 inline-block ${stats.blocked > 0 ? 'text-rose-400' : 'text-brand-text-muted'}`}>
                             {stats.blocked}
                         </span>
+                        {stats.blocked > 0 && (
+                            <span className="text-xs text-rose-400 font-semibold font-mono">
+                                ({stats.blocked} {t.statUrgentBlocks})
+                            </span>
+                        )}
                     </div>
-                    <div className="text-xs text-rose-400/90 font-medium">
-                        {stats.blocked > 0 ? t.statRequiresAttention : t.statNoBlocked}
+                    <div className="flex items-center justify-between text-xs text-rose-400/90 font-medium">
+                        <span>{stats.blocked > 0 ? t.statRequiresAttention : t.statNoBlocked}</span>
+                        {stats.blocked > 0 && (
+                            <span className="text-[11px] font-bold underline text-rose-300 hover:text-white transition-colors">
+                                {taskPreset === 'blocked' ? t.taskAll : t.statViewBlocked} →
+                            </span>
+                        )}
                     </div>
                 </div>
 
@@ -337,6 +405,54 @@ export const DashboardView: React.FC = () => {
                 </button>
             </div>
 
+            {/* Task View Presets Bar (Pills matching requested task-based view) */}
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-2.5 shadow-md flex items-center gap-2 overflow-x-auto scrollbar-thin animate-slide-up stagger-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-muted px-2 shrink-0 flex items-center gap-1.5">
+                    <Filter size={13} className="text-brand-accent" />
+                    <span>Zadania:</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-1 min-w-max">
+                    {[
+                        { id: 'all', label: t.taskAll, count: stats.total, color: 'indigo' },
+                        { id: 'action_required', label: t.taskActionRequired, count: presetCounts.actionRequired, color: 'rose', icon: AlertTriangle, urgent: presetCounts.actionRequired > 0 },
+                        { id: 'to_reset', label: t.taskToReset, count: presetCounts.toReset, color: 'amber', icon: RotateCcw },
+                        { id: 'blocked', label: t.taskBlocked, count: stats.blocked, color: 'red', icon: Ban },
+                        { id: 'cycles_80', label: t.taskCycle80, count: presetCounts.cycles80, color: 'orange', icon: Gauge },
+                        { id: 'errors_exceeded', label: t.taskErrorExceeded, count: presetCounts.errorsExceeded, color: 'rose', icon: AlertCircle, urgent: presetCounts.errorsExceeded > 0 },
+                        ...(user?.uid ? [{ id: 'my_processes', label: t.taskMyProcesses, count: presetCounts.myProcesses, color: 'cyan', icon: User }] : []),
+                    ].map(pill => {
+                        const isActive = taskPreset === pill.id;
+                        const Icon = pill.icon;
+                        return (
+                            <button
+                                key={pill.id}
+                                type="button"
+                                onClick={() => setTaskPreset(pill.id as TaskPreset)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                                    isActive
+                                        ? 'bg-brand-accent text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] ring-2 ring-brand-accent/50'
+                                        : pill.urgent
+                                            ? 'bg-rose-950/40 text-rose-300 border border-rose-800/60 hover:bg-rose-900/50 hover:border-rose-500'
+                                            : 'bg-brand-surface-high/80 text-brand-text-muted border border-brand-border/60 hover:text-brand-text hover:bg-brand-surface-high hover:border-brand-text-muted/40'
+                                }`}
+                            >
+                                {Icon && <Icon size={13} className={isActive ? 'text-white' : (pill.urgent ? 'text-rose-400 animate-pulse' : 'text-brand-text-muted')} />}
+                                <span>{pill.label}</span>
+                                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                                    isActive
+                                        ? 'bg-black/30 text-white'
+                                        : pill.urgent
+                                            ? 'bg-rose-500/20 text-rose-300 font-bold'
+                                            : 'bg-brand-surface text-brand-text-muted'
+                                }`}>
+                                    {pill.count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
             {/* Section Header: Title & Refresh Button */}
             <div className="flex items-center justify-between pt-1 animate-slide-up stagger-5">
                 <h2 className="text-base sm:text-lg font-bold text-brand-text tracking-wide">{t.sectionRegistryTitle}</h2>
@@ -354,9 +470,9 @@ export const DashboardView: React.FC = () => {
             {/* Table with Interactive Sorting and no Checkboxes / Global column */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-5">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse table-auto">
+                    <table className="w-full text-left text-[13px] border-collapse table-auto">
                         <thead>
-                            <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
+                            <tr className="bg-brand-surface text-brand-text-muted font-mono text-xs uppercase tracking-wider border-b border-brand-border">
                                 {renderSortHeader('unit', t.thMasterId, 'w-44')}
                                 {renderSortHeader('process', t.thProcess, 'w-40')}
                                 {renderSortHeader('FIS', t.thFis, 'w-28 text-center')}
@@ -365,10 +481,10 @@ export const DashboardView: React.FC = () => {
                                 {renderSortHeader('status', t.thStatus, 'w-28 text-center')}
                                 {renderSortHeader('user', t.thOperator, 'w-44')}
                                 {renderSortHeader('isactive', t.thState, 'w-32 text-center')}
-                                {canEdit && <th className="py-3 px-3.5 w-36 font-semibold text-right pr-4">{t.thActions}</th>}
+                                {canEdit && <th className="py-3 px-3.5 w-44 font-semibold text-right pr-4">{t.thActions}</th>}
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-xs">
+                        <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-[13px]">
                             {isLoading ? (
                                 <tr>
                                     <td colSpan={canEdit ? 9 : 8} className="py-12 text-center text-brand-text-muted">
@@ -387,6 +503,10 @@ export const DashboardView: React.FC = () => {
                             ) : (
                                 displayedMasters.map((m, idx) => {
                                     const isDead = m.isactive === 2;
+                                    const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
+                                    const errorExceeded = m.errorMaxCounter > 0 && m.errorCounter >= m.errorMaxCounter;
+                                    const cycleWarn = !cycleExceeded && m.maxCounter > 0 && (m.currentCounter / m.maxCounter) >= 0.8;
+                                    const hasActionRequired = cycleExceeded || errorExceeded;
                                     const cyclePct = m.maxCounter > 0 ? Math.min(100, Math.round((m.currentCounter / m.maxCounter) * 100)) : 0;
                                     const errorPct = m.errorMaxCounter > 0 ? Math.min(100, Math.round((m.errorCounter / m.errorMaxCounter) * 100)) : 0;
 
@@ -394,46 +514,58 @@ export const DashboardView: React.FC = () => {
                                         <tr
                                             key={m.id}
                                             style={{ animationDelay: `${Math.min(idx * 20, 350)}ms` }}
-                                            className={`animate-row-enter hover:bg-brand-surface-high transition-colors duration-150 ${
-                                                isDead ? 'opacity-60 bg-rose-950/10' : ''
+                                            className={`animate-row-enter transition-colors duration-150 ${
+                                                hasActionRequired
+                                                    ? 'bg-rose-950/20 hover:bg-rose-900/30 border-l-4 border-rose-500'
+                                                    : isDead
+                                                        ? 'opacity-60 bg-slate-900/50 hover:bg-brand-surface-high'
+                                                        : 'hover:bg-brand-surface-high'
                                             }`}
                                         >
                                             {/* Master ID (Indigo link to FIS 1 / FIS 2) */}
-                                            <td className="py-2.5 px-3.5 font-bold tracking-wide">
+                                            <td className="py-3 px-3.5 font-bold tracking-wide">
                                                 <a
                                                     href={getFisUnitHistoryUrl(m.unit, m.FIS)}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="text-brand-accent hover:text-indigo-300 hover:underline inline-block transition-transform hover:translate-x-0.5 duration-150"
+                                                    className="text-brand-accent hover:text-indigo-300 hover:underline inline-flex items-center gap-1.5 transition-transform hover:translate-x-0.5 duration-150"
                                                     title={`Otwórz historię jednostki w FIS ${String(m.FIS || '').includes('2') ? '2' : '1'}`}
                                                 >
                                                     {m.unit}
+                                                    {hasActionRequired && (
+                                                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" title={t.limitExceededTooltip} />
+                                                    )}
                                                 </a>
                                             </td>
 
                                             {/* Process */}
-                                            <td className="py-2.5 px-3.5 text-brand-text font-semibold break-all">
+                                            <td className="py-3 px-3.5 text-brand-text font-semibold break-all">
                                                 {m.process}
                                             </td>
 
                                             {/* Parametry (FIS badge) */}
-                                            <td className="py-2.5 px-3.5 text-center">
-                                                <span className="bg-brand-surface-high border border-brand-border text-brand-text px-2 py-0.5 rounded text-[11px] font-mono inline-block">
+                                            <td className="py-3 px-3.5 text-center">
+                                                <span className="bg-brand-surface-high border border-brand-border text-brand-text px-2 py-0.5 rounded text-xs font-mono inline-block">
                                                     FIS: {m.FIS || '1'}
                                                 </span>
                                             </td>
 
-                                            {/* Zużycie (Cykle) with progress bar */}
-                                            <td className="py-2.5 px-3.5">
+                                            {/* Zużycie (Cykle) with progress bar & exceeded warning */}
+                                            <td className="py-3 px-3.5">
                                                 <div className="space-y-1">
-                                                    <div className="flex justify-between items-center text-[11px] text-brand-text">
-                                                        <span>{m.currentCounter} <span className="text-brand-text-muted/70">/ {m.maxCounter}</span></span>
-                                                        <span className={cyclePct >= 90 ? 'text-rose-400 font-bold' : (cyclePct >= 80 ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{cyclePct}%</span>
+                                                    <div className="flex justify-between items-center text-xs">
+                                                        <span className={cycleExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (cycleWarn ? 'text-amber-300 font-bold' : 'text-slate-200')}>
+                                                            {cycleExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0 animate-bounce" />}
+                                                            <span>{m.currentCounter} <span className="text-brand-text-muted/60">/ {m.maxCounter}</span></span>
+                                                        </span>
+                                                        <span className={cycleExceeded ? 'text-rose-400 font-bold' : (cycleWarn ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{cyclePct}%</span>
                                                     </div>
-                                                    <div className="h-1.5 w-full bg-brand-surface-high rounded-full overflow-hidden">
+                                                    <div className="h-2 w-full bg-brand-surface-high rounded-full overflow-hidden">
                                                         <div
                                                             className={`h-full rounded-full transition-all duration-700 ease-out ${
-                                                                cyclePct >= 90 ? 'bg-rose-500' : (cyclePct >= 80 ? 'bg-amber-500' : 'bg-brand-accent')
+                                                                cycleExceeded
+                                                                    ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]'
+                                                                    : (cycleWarn ? 'bg-amber-500' : 'bg-brand-accent')
                                                             }`}
                                                             style={{ width: `${cyclePct}%` }}
                                                         />
@@ -441,19 +573,22 @@ export const DashboardView: React.FC = () => {
                                                 </div>
                                             </td>
 
-                                            {/* Licznik Błędów with progress bar */}
-                                            <td className="py-2.5 px-3.5">
+                                            {/* Licznik Błędów with progress bar & exceeded warning */}
+                                            <td className="py-3 px-3.5">
                                                 <div className="space-y-1">
-                                                    <div className="flex justify-between items-center text-[11px]">
-                                                        <span className={m.errorCounter > 0 ? 'text-rose-400 font-bold' : 'text-brand-text'}>
-                                                             {m.errorCounter} <span className="text-brand-text-muted/70">/ {m.errorMaxCounter}</span>
+                                                    <div className="flex justify-between items-center text-xs">
+                                                        <span className={errorExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (m.errorCounter > 0 ? 'text-amber-300 font-bold' : 'text-slate-200')}>
+                                                            {errorExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0 animate-bounce" />}
+                                                            <span>{m.errorCounter} <span className="text-brand-text-muted/60">/ {m.errorMaxCounter}</span></span>
                                                         </span>
-                                                        <span className={m.errorCounter > 0 ? 'text-rose-400 font-bold' : 'text-brand-text-muted'}>{errorPct}%</span>
+                                                        <span className={errorExceeded ? 'text-rose-400 font-bold' : (m.errorCounter > 0 ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{errorPct}%</span>
                                                     </div>
-                                                    <div className="h-1.5 w-full bg-brand-surface-high rounded-full overflow-hidden">
+                                                    <div className="h-2 w-full bg-brand-surface-high rounded-full overflow-hidden">
                                                         <div
                                                             className={`h-full rounded-full transition-all duration-700 ease-out ${
-                                                                m.errorCounter > 0 ? 'bg-rose-500' : 'bg-brand-border'
+                                                                errorExceeded
+                                                                    ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]'
+                                                                    : (m.errorCounter > 0 ? 'bg-amber-500' : 'bg-brand-border')
                                                             }`}
                                                             style={{ width: `${errorPct}%` }}
                                                         />
@@ -462,51 +597,41 @@ export const DashboardView: React.FC = () => {
                                             </td>
 
                                             {/* Status Badge */}
-                                            <td className="py-2.5 px-3.5 text-center">
+                                            <td className="py-3 px-3.5 text-center">
                                                 {m.status === 'GOOD' ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
                                                         GOOD
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
                                                         BAD
                                                     </span>
                                                 )}
                                             </td>
 
                                             {/* Utworzył / Operator */}
-                                            <td className="py-2.5 px-3.5 text-brand-text font-sans truncate max-w-[160px]" title={m.user}>
+                                            <td className="py-3 px-3.5 text-brand-text font-sans truncate max-w-[160px]" title={m.user}>
                                                 {m.user || '—'}
                                             </td>
 
                                             {/* Stan: AKTYWNY / ZABLOKOWANY */}
-                                            <td className="py-2.5 px-3.5 text-center">
+                                            <td className="py-3 px-3.5 text-center">
                                                 {isDead ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
                                                         {t.stateBlocked}
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
                                                         {t.stateActive}
                                                     </span>
                                                 )}
                                             </td>
 
-                                            {/* Akcje (if canEdit) */}
+                                            {/* Akcje (if canEdit) - Safer layout with Reset highlighted */}
                                             {canEdit && (
-                                                <td className="py-2.5 px-3.5 text-right pr-4">
+                                                <td className="py-3 px-3.5 text-right pr-4">
                                                     <div className="flex items-center justify-end gap-1.5">
-                                                        {/* Unit History Button */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setHistoryTarget(m)}
-                                                            className="interactive-button p-1.5 rounded-lg bg-brand-surface-high border border-brand-border/80 text-brand-text-muted hover:text-indigo-300 hover:border-brand-accent/50 hover:bg-brand-accent/15 hover:shadow-xs cursor-pointer"
-                                                            title="Historia zmian tego mastera"
-                                                        >
-                                                            <History size={14} />
-                                                        </button>
-
-                                                        {/* Selective Reset Counter Options */}
+                                                        {/* Primary Safe Action: Reset Counters with distinct badge */}
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -514,26 +639,40 @@ export const DashboardView: React.FC = () => {
                                                                 setResetTarget({ units: [m.unit], unitNames: m.unit });
                                                             }}
                                                             disabled={isDead}
-                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer ${
+                                                            className={`interactive-button px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
                                                                 isDead
                                                                     ? 'opacity-30 cursor-not-allowed bg-brand-surface-high border-brand-border text-brand-text-muted/70'
-                                                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/25 hover:border-amber-400/60 hover:shadow-xs'
+                                                                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-400 hover:shadow-[0_0_12px_rgba(245,158,11,0.25)]'
                                                             }`}
-                                                            title="Resetuj liczniki (wybór cykli lub błędów)"
+                                                            title={t.actionReset}
                                                         >
-                                                            <RotateCcw size={14} />
+                                                            <RotateCcw size={13} />
+                                                            <span>Reset</span>
                                                         </button>
+
+                                                        {/* History Button */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setHistoryTarget(m)}
+                                                            className="interactive-button p-1.5 rounded-lg bg-brand-surface-high border border-brand-border/80 text-brand-text-muted hover:text-indigo-300 hover:border-brand-accent/50 hover:bg-brand-accent/15 hover:shadow-xs cursor-pointer"
+                                                            title={t.actionHistory}
+                                                        >
+                                                            <History size={14} />
+                                                        </button>
+
+                                                        {/* Safe Divider separating dangerous actions */}
+                                                        <div className="h-4 w-px bg-brand-border/80 mx-0.5" />
 
                                                         {/* Block / Unblock Toggle */}
                                                         <button
                                                             type="button"
                                                             onClick={() => setBlockTarget({ units: [m.unit], block: !isDead })}
-                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer ${
+                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer transition-all ${
                                                                 isDead
                                                                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 hover:border-emerald-400/60 hover:shadow-xs'
                                                                     : 'bg-brand-surface-high border-brand-border/80 text-brand-text-muted hover:text-rose-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:shadow-xs'
                                                             }`}
-                                                            title={isDead ? "Aktywuj mastera" : "Zablokuj mastera (isActive=2)"}
+                                                            title={isDead ? t.actionActivateConfirm : t.actionBlockConfirm}
                                                         >
                                                             {isDead ? <Check size={14} /> : <Ban size={14} />}
                                                         </button>
@@ -543,7 +682,7 @@ export const DashboardView: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setDeleteTarget(m)}
                                                             className="interactive-button p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 hover:border-rose-400/60 hover:shadow-xs cursor-pointer"
-                                                            title="Usuń z bazy danych"
+                                                            title={t.actionDeleteConfirm}
                                                         >
                                                             <Trash2 size={14} />
                                                         </button>

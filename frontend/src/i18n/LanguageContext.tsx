@@ -37,6 +37,42 @@ const translations = {
         btnExportCsv: 'EKSPORTUJ HISTORIĘ / CSV',
         searchPlaceholder: 'Szukaj ID mastera, procesu, pracownika...',
 
+        // Task view presets
+        taskAll: 'Wszystkie',
+        taskActionRequired: 'Wymaga Działania',
+        taskToReset: 'Do Resetu',
+        taskBlocked: 'Zablokowane (Dead)',
+        taskCycle80: '>80% Cykli',
+        taskErrorExceeded: 'Przekroczone Błędy',
+        taskMyProcesses: 'Moje Procesy',
+
+        // Stats card details
+        statUrgentBlocks: 'pilne blokady',
+        statViewBlocked: 'Pokaż zablokowane',
+
+        // Action labels & tooltips
+        actionReset: 'Resetuj Liczniki',
+        actionHistory: 'Historia Zmian',
+        actionMore: 'Więcej Akcji',
+        actionBlockConfirm: 'Zablokuj',
+        actionActivateConfirm: 'Aktywuj',
+        actionDeleteConfirm: 'Usuń',
+        limitExceededTooltip: 'Przekroczono dopuszczalny limit! Wymagane działanie serwisowe.',
+        warningLimitTooltip: 'Licznik osiągnął ponad 80% limitu ostrzegawczego.',
+
+        // History View filters & ops
+        filterDateFrom: 'Data Od',
+        filterDateTo: 'Data Do',
+        allOperations: 'Wszystkie Operacje',
+        opCreate: 'Utworzenie',
+        opUpdate: 'Aktualizacja',
+        opReset: 'Reset Liczników',
+        opResetCycles: 'Reset Cykli',
+        opResetErrors: 'Reset Błędów',
+        opBlock: 'Zablokowanie',
+        opActivate: 'Aktywacja',
+        opDelete: 'Usunięcie',
+
         // Filters
         filterProcess: 'FILTRUJ WG PROCESU',
         allProcesses: 'Wszystkie Procesy',
@@ -139,6 +175,13 @@ const translations = {
         statusLabel: 'Status Mastera',
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
+        consequenceGoodTitle: 'Sztuka referencyjna "PASS" (Sprawny wzorzec)',
+        consequenceGoodDesc: 'Służy do potwierdzenia poprawności testowania na stacjach FIS. System oczekuje pozytywnego przejścia testu na linii produkcyjnej.',
+        consequenceBadTitle: 'Sztuka referencyjna "FAIL" (Wadliwy wzorzec / Red Rabbit)',
+        consequenceBadDesc: 'Służy do celowej weryfikacji detekcji błędów przez maszynę. System wymaga, aby stacja testowa prawidłowo wykryła defekt i odrzuciła sztukę.',
+        validationSnEmpty: 'Numer seryjny (SN) jest wymagany.',
+        validationSnValid: 'Numer SN poprawny.',
+        validationProcEmpty: 'Wybierz co najmniej jeden proces.',
         maxCounterLabel: 'Limit Użyć (Max Use)',
         maxCounterHint: 'Domyślnie: 1000 (zakres: 50–5000)',
         maxErrorsLabel: 'Limit Błędów (Max Errors)',
@@ -205,6 +248,42 @@ const translations = {
         btnAddMaster: 'ADD NEW MASTER',
         btnExportCsv: 'EXPORT HISTORY / CSV',
         searchPlaceholder: 'Search master ID, process, operator...',
+
+        // Task view presets
+        taskAll: 'All',
+        taskActionRequired: 'Action Required',
+        taskToReset: 'Needs Reset',
+        taskBlocked: 'Blocked (Dead)',
+        taskCycle80: '>80% Cycles',
+        taskErrorExceeded: 'Errors Exceeded',
+        taskMyProcesses: 'My Processes',
+
+        // Stats card details
+        statUrgentBlocks: 'urgent blocks',
+        statViewBlocked: 'View blocked',
+
+        // Action labels & tooltips
+        actionReset: 'Reset Counters',
+        actionHistory: 'Change History',
+        actionMore: 'More Actions',
+        actionBlockConfirm: 'Block',
+        actionActivateConfirm: 'Activate',
+        actionDeleteConfirm: 'Delete',
+        limitExceededTooltip: 'Allowed limit exceeded! Service action required.',
+        warningLimitTooltip: 'Counter reached over 80% of warning limit.',
+
+        // History View filters & ops
+        filterDateFrom: 'Date From',
+        filterDateTo: 'Date To',
+        allOperations: 'All Operations',
+        opCreate: 'Create',
+        opUpdate: 'Update',
+        opReset: 'Reset Counters',
+        opResetCycles: 'Reset Cycles',
+        opResetErrors: 'Reset Errors',
+        opBlock: 'Block',
+        opActivate: 'Reactivate',
+        opDelete: 'Delete',
 
         // Filters
         filterProcess: 'FILTER BY PROCESS',
@@ -308,6 +387,13 @@ const translations = {
         statusLabel: 'Master Status',
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
+        consequenceGoodTitle: 'Reference unit "PASS" (Golden Sample)',
+        consequenceGoodDesc: 'Used to confirm correct test execution in FIS. System expects a PASS test result on the production line.',
+        consequenceBadTitle: 'Reference unit "FAIL" (Defect Sample / Red Rabbit)',
+        consequenceBadDesc: 'Used to intentionally verify machine defect detection. System requires the test station to correctly detect and reject this unit.',
+        validationSnEmpty: 'Serial number (SN) is required.',
+        validationSnValid: 'Valid SN format.',
+        validationProcEmpty: 'Select at least one process.',
         maxCounterLabel: 'Max Cycles (Max Use)',
         maxCounterHint: 'Default: 1000 (range: 50–5000)',
         maxErrorsLabel: 'Max Errors Limit',

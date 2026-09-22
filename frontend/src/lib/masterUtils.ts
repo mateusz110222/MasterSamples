@@ -3,11 +3,15 @@ import type { MasterUnit } from '../types/index.ts';
 export type MasterSortField = 'unit' | 'process' | 'FIS' | 'currentCounter' | 'errorCounter' | 'status' | 'user' | 'isactive';
 export type SortDirection = 'asc' | 'desc';
 
+export type TaskPreset = 'all' | 'action_required' | 'to_reset' | 'blocked' | 'cycles_80' | 'errors_exceeded' | 'my_processes';
+
 export interface MasterFilters {
     searchTerm: string;
     process: string;
     status: string;
     activity: string;
+    taskPreset?: TaskPreset;
+    currentUser?: string;
 }
 
 export const splitProcesses = (value: string): string[] =>
@@ -29,6 +33,38 @@ export const filterMasters = (masters: MasterUnit[], filters: MasterFilters): Ma
         if (filters.status && master.status !== filters.status) return false;
         if (filters.activity === 'active' && master.isactive !== 1) return false;
         if (filters.activity === 'dead' && master.isactive !== 2) return false;
+
+        if (filters.taskPreset && filters.taskPreset !== 'all') {
+            const cycleExceeded = master.maxCounter > 0 && master.currentCounter >= master.maxCounter;
+            const errorExceeded = master.errorMaxCounter > 0 && master.errorCounter >= master.errorMaxCounter;
+            const cycle80 = master.maxCounter > 0 && (master.currentCounter / master.maxCounter) >= 0.8;
+            const hasErrors = master.errorCounter > 0;
+            const isDead = master.isactive === 2;
+
+            switch (filters.taskPreset) {
+                case 'action_required':
+                    if (!cycleExceeded && !errorExceeded && !isDead) return false;
+                    break;
+                case 'to_reset':
+                    if (!cycle80 && !hasErrors && !cycleExceeded && !errorExceeded) return false;
+                    break;
+                case 'blocked':
+                    if (!isDead) return false;
+                    break;
+                case 'cycles_80':
+                    if (!cycle80) return false;
+                    break;
+                case 'errors_exceeded':
+                    if (!errorExceeded) return false;
+                    break;
+                case 'my_processes':
+                    if (!filters.currentUser) return false;
+                    const u = filters.currentUser.toLowerCase();
+                    if (!master.user?.toLowerCase().includes(u)) return false;
+                    break;
+            }
+        }
+
         return true;
     });
 };
