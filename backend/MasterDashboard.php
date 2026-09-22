@@ -90,28 +90,13 @@ function getRequestData(): array
     return array_merge($_GET, $_POST);
 }
 
-function cleanUsername(string $raw): string
+function cleanUsername(string $user): string
 {
-    $raw = trim($raw);
-    if ($raw === '') {
-        return '';
+    $user = trim($user);
+    if (str_contains($user, '\\')) {
+        $user = substr($user, (int)strrpos($user, '\\') + 1);
     }
-    // Jeśli JSON {"status": true, "user": "..."}
-    if (str_starts_with($raw, '{')) {
-        $decoded = json_decode($raw, true);
-        if (is_array($decoded) && !empty($decoded['user'])) {
-            $raw = (string)$decoded['user'];
-        }
-    }
-    // Jeśli starszy format var_dump string(XX) "username"
-    if (preg_match('/"([^"]+)"/', $raw, $m)) {
-        $raw = $m[1];
-    }
-    $raw = trim($raw, " \t\n\r\0\x0B\"'");
-    if (str_contains($raw, '\\')) {
-        $raw = substr($raw, (int)strrpos($raw, '\\') + 1);
-    }
-    return $raw;
+    return trim($user, " \t\n\r\0\x0B\"'");
 }
 
 function getCurrentUser(array $input): string
@@ -130,54 +115,19 @@ function getCurrentUser(array $input): string
 
 function getAuthenticatedUser(): string
 {
-    // 1. Bezpośrednie pobranie z getenv('REMOTE_USER') - dokładnie tak jak w GetUserName.php
-    $remoteUser = (string)(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? ''));
-    $user = cleanUsername($remoteUser);
-    if ($user !== '') {
-        return $user;
+    $remoteUser = cleanUsername((string)(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? '')));
+    if ($remoteUser !== '') {
+        return $remoteUser;
     }
 
-    // 2. Załączenie i wykonanie z pliku /custom/auth/GetUserName.php na serwerze
-    $authCandidates = [
-        dirname(__DIR__, 3) . '/auth/GetUserName.php',
-        rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/\\') . '/custom/auth/GetUserName.php',
-        dirname(__DIR__, 2) . '/auth/GetUserName.php',
-        __DIR__ . '/auth/GetUserName.php',
-    ];
-
-    foreach ($authCandidates as $path) {
-        if ($path !== '' && is_file($path)) {
-            try {
-                ob_start();
-                include $path;
-                $output = (string)ob_get_clean();
-                $u = cleanUsername($output);
-                if ($u !== '') {
-                    return $u;
-                }
-            } catch (\Throwable $e) {
-                ob_end_clean();
-            }
-        }
+    if (!empty($_SERVER['HTTP_X_USER'])) {
+        return cleanUsername((string)$_SERVER['HTTP_X_USER']);
     }
 
-    // 3. Nagłówek HTTP X-User przekazany przez frontendowy klient API
-    $headerUser = $_SERVER['HTTP_X_USER'] ?? '';
-    if ($headerUser !== '') {
-        $u = cleanUsername((string)$headerUser);
-        if ($u !== '') {
-            return $u;
-        }
-    }
-
-    // 4. Parametr z żądania (POST/GET)
     $input = getRequestData();
     $inputUser = $input['user'] ?? $input['userId'] ?? '';
     if ($inputUser !== '') {
-        $u = cleanUsername((string)$inputUser);
-        if ($u !== '') {
-            return $u;
-        }
+        return cleanUsername((string)$inputUser);
     }
 
     return '';

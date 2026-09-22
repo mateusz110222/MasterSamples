@@ -64,17 +64,8 @@ export const fisApi = {
         try {
             const res = await fetch(AUTH_API_BASE);
             if (res.ok) {
-                const raw = await res.text();
-                try {
-                    const data = JSON.parse(raw);
-                    cleanUid = typeof data === 'object' && data !== null
-                        ? (data.user || data.userId || '')
-                        : String(data);
-                } catch {
-                    // Fallback jeśli na serwerze pozostała odpowiedź tekstowa / var_dump
-                    const match = raw.match(/"([^"]+)"/);
-                    cleanUid = match ? match[1].trim() : raw.trim();
-                }
+                const data = await res.json();
+                cleanUid = data?.user || '';
             }
         } catch (e) {
             console.warn('[Auth] Could not reach GetUserName.php', e);
