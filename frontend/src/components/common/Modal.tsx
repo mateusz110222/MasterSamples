@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -19,13 +20,22 @@ export const Modal: React.FC<ModalProps> = ({
     maxWidth = 'md'
 }) => {
     useEffect(() => {
+        if (!isOpen) return;
+
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && isOpen) {
+            if (e.key === 'Escape') {
                 onClose();
             }
         };
+
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            document.body.style.overflow = originalOverflow;
+        };
     }, [isOpen, onClose]);
 
     if (!isOpen) return null;
@@ -38,15 +48,15 @@ export const Modal: React.FC<ModalProps> = ({
         '2xl': 'max-w-2xl'
     }[maxWidth];
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/80 backdrop-blur-sm animate-modal-backdrop">
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/80 backdrop-blur-sm animate-modal-backdrop">
             <div 
                 className="fixed inset-0 cursor-pointer" 
                 onClick={onClose} 
                 aria-hidden="true" 
             />
             
-            <div className={`relative w-full ${maxWidthClasses} bg-[#111827] border border-[#374151] rounded-2xl shadow-2xl shadow-black/60 p-6 overflow-hidden z-10 space-y-5 text-[#f9fafb] animate-modal-pop`}>
+            <div className={`relative w-full ${maxWidthClasses} bg-[#111827] border border-[#374151] rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-[#f9fafb] animate-modal-pop my-auto`}>
                 <div className="flex items-start justify-between gap-4 pb-3 border-b border-[#374151]/60">
                     <div>
                         <h3 className="text-lg font-bold tracking-tight text-white">{title}</h3>
@@ -67,6 +77,7 @@ export const Modal: React.FC<ModalProps> = ({
                     {children}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
