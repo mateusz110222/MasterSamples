@@ -24,26 +24,43 @@ export const Modal: React.FC<ModalProps> = ({
     const titleId = useId();
     const descriptionId = useId();
 
+    const [prevIsOpen, setPrevIsOpen] = React.useState(isOpen);
     const [isMounted, setIsMounted] = React.useState(isOpen);
     const [isExiting, setIsExiting] = React.useState(false);
+    const [cachedContent, setCachedContent] = React.useState({ title, description, children });
+
+    if (isOpen) {
+        if (!isMounted) setIsMounted(true);
+        if (isExiting) setIsExiting(false);
+        if (
+            cachedContent.title !== title ||
+            cachedContent.description !== description ||
+            cachedContent.children !== children
+        ) {
+            setCachedContent({ title, description, children });
+        }
+    }
+
+    if (isOpen !== prevIsOpen) {
+        setPrevIsOpen(isOpen);
+        if (!isOpen && isMounted) {
+            setIsExiting(true);
+        }
+    }
 
     useEffect(() => {
         onCloseRef.current = onClose;
     }, [onClose]);
 
     useEffect(() => {
-        if (isOpen) {
-            setIsMounted(true);
-            setIsExiting(false);
-        } else if (isMounted) {
-            setIsExiting(true);
+        if (isExiting) {
             const timer = setTimeout(() => {
                 setIsMounted(false);
                 setIsExiting(false);
             }, 200);
             return () => clearTimeout(timer);
         }
-    }, [isOpen, isMounted]);
+    }, [isExiting]);
 
     useEffect(() => {
         if (!isMounted) return;
@@ -126,9 +143,13 @@ export const Modal: React.FC<ModalProps> = ({
             >
                 <div className="flex items-start justify-between gap-4 pb-3 border-b border-brand-border/60">
                     <div>
-                        <h3 id={titleId} className="text-lg font-bold tracking-tight text-brand-text">{title}</h3>
-                        {description && (
-                            <p id={descriptionId} className="text-xs text-brand-text-muted mt-1">{description}</p>
+                        <h3 id={titleId} className="text-lg font-bold tracking-tight text-brand-text">
+                            {isOpen ? title : cachedContent.title}
+                        </h3>
+                        {(isOpen ? description : cachedContent.description) && (
+                            <p id={descriptionId} className="text-xs text-brand-text-muted mt-1">
+                                {isOpen ? description : cachedContent.description}
+                            </p>
                         )}
                     </div>
                     <button
@@ -141,7 +162,7 @@ export const Modal: React.FC<ModalProps> = ({
                 </div>
 
                 <div className="max-h-[75vh] overflow-y-auto pr-1">
-                    {children}
+                    {isOpen ? children : cachedContent.children}
                 </div>
             </div>
         </div>,

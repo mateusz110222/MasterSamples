@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw, Check, CheckCircle2, Ban, Trash2, ExternalLink } from 'lucide-react';
 import { getFisUnitHistoryUrl } from '../../api/fisApi';
 import type { TranslationsType } from '../../i18n/LanguageContext';
@@ -93,23 +92,6 @@ export const DashboardModals = ({
     history,
     historyLoading,
 }: DashboardModalsProps) => {
-    // Preserve last active target across exit animations (prevent flicker/flipping when parent sets target to null)
-    const lastBlockTargetRef = useRef(blockTarget);
-    if (blockTarget) lastBlockTargetRef.current = blockTarget;
-    const activeBlockTarget = blockTarget ?? lastBlockTargetRef.current;
-
-    const lastResetTargetRef = useRef(resetTarget);
-    if (resetTarget) lastResetTargetRef.current = resetTarget;
-    const activeResetTarget = resetTarget ?? lastResetTargetRef.current;
-
-    const lastDeleteTargetRef = useRef(deleteTarget);
-    if (deleteTarget) lastDeleteTargetRef.current = deleteTarget;
-    const activeDeleteTarget = deleteTarget ?? lastDeleteTargetRef.current;
-
-    const lastHistoryTargetRef = useRef(historyTarget);
-    if (historyTarget) lastHistoryTargetRef.current = historyTarget;
-    const activeHistoryTarget = historyTarget ?? lastHistoryTargetRef.current;
-
     const resetOptions = [
         {
             value: 'all' as const,
@@ -149,7 +131,7 @@ export const DashboardModals = ({
                 isOpen={Boolean(resetTarget)}
                 onClose={closeReset}
                 title={t.resetModalTitle}
-                description={`${t.resetModalDesc} ${activeResetTarget?.unitNames ?? ''}`}
+                description={`${t.resetModalDesc} ${resetTarget?.unitNames ?? ''}`}
             >
                 <div className="space-y-4">
                     <div className="space-y-2.5">
@@ -200,7 +182,7 @@ export const DashboardModals = ({
                         confirmLabel={resetMutation.isPending ? t.resetting : t.confirmReset}
                         pending={resetMutation.isPending}
                         onCancel={closeReset}
-                        onConfirm={() => activeResetTarget && resetMutation.mutate({ units: activeResetTarget.units, type: resetType })}
+                        onConfirm={() => resetTarget && resetMutation.mutate({ units: resetTarget.units, type: resetType })}
                         icon={<RotateCcw size={15} />}
                     />
                 </div>
@@ -209,11 +191,11 @@ export const DashboardModals = ({
             <Modal
                 isOpen={Boolean(blockTarget)}
                 onClose={closeBlock}
-                title={activeBlockTarget?.block ? t.blockModalTitle : t.activateModalTitle}
-                description={`Zmiana stanu aktywności dla: ${activeBlockTarget?.units.join(', ') ?? ''}`}
+                title={blockTarget?.block ? t.blockModalTitle : t.activateModalTitle}
+                description={`Zmiana stanu aktywności dla: ${blockTarget?.units.join(', ') ?? ''}`}
             >
                 <div className="space-y-5">
-                    {activeBlockTarget?.block ? (
+                    {blockTarget?.block ? (
                         <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
                             <Ban className="mt-0.5 shrink-0 text-rose-400" size={20} />
                             <div className="space-y-1">
@@ -239,21 +221,21 @@ export const DashboardModals = ({
                         confirmLabel={blockMutation.isPending ? t.saving : t.confirm}
                         pending={blockMutation.isPending}
                         onCancel={closeBlock}
-                        onConfirm={() => activeBlockTarget && blockMutation.mutate(activeBlockTarget)}
-                        destructive={Boolean(activeBlockTarget?.block)}
-                        icon={activeBlockTarget?.block ? <Ban size={16} /> : <Check size={16} />}
+                        onConfirm={() => blockTarget && blockMutation.mutate(blockTarget)}
+                        destructive={Boolean(blockTarget?.block)}
+                        icon={blockTarget?.block ? <Ban size={16} /> : <Check size={16} />}
                     />
                 </div>
             </Modal>
 
-            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={`Fizyczne usunięcie rekordu: ${activeDeleteTarget?.unit ?? ''}`}>
+            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={`Fizyczne usunięcie rekordu: ${deleteTarget?.unit ?? ''}`}>
                 <div className="space-y-5">
                     <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
                         <AlertTriangle className="mt-0.5 shrink-0 text-rose-400" size={20} />
                         <div className="space-y-1">
                             <p className="text-sm font-bold text-rose-300 tracking-tight">{t.deleteModalWarning}</p>
                             <p className="text-[13px] leading-relaxed text-rose-100/90 font-medium">
-                                Rekord <strong className="font-mono text-white underline font-bold">{activeDeleteTarget?.unit}</strong> {t.deleteModalText}
+                                Rekord <strong className="font-mono text-white underline font-bold">{deleteTarget?.unit}</strong> {t.deleteModalText}
                             </p>
                         </div>
                     </div>
@@ -262,19 +244,19 @@ export const DashboardModals = ({
                         confirmLabel={deleteMutation.isPending ? t.deleting : t.confirmDelete}
                         pending={deleteMutation.isPending}
                         onCancel={closeDelete}
-                        onConfirm={() => activeDeleteTarget && deleteMutation.mutate(activeDeleteTarget.unit)}
+                        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.unit)}
                         destructive
                         icon={<Trash2 size={16} />}
                     />
                 </div>
             </Modal>
 
-            <Modal isOpen={Boolean(historyTarget)} onClose={closeHistory} title={`${t.historyModalTitle} ${activeHistoryTarget?.unit ?? ''}`} description={t.historyModalSub} maxWidth="2xl">
+            <Modal isOpen={Boolean(historyTarget)} onClose={closeHistory} title={`${t.historyModalTitle} ${historyTarget?.unit ?? ''}`} description={t.historyModalSub} maxWidth="2xl">
                 <div className="space-y-4">
                     {historyLoading ? (
                         <div className="py-8 text-center font-mono text-xs text-brand-text-muted"><RefreshCw className="mr-2 inline-block animate-spin text-brand-accent" size={18} />Ładowanie historii zdarzeń...</div>
                     ) : history.length === 0 ? (
-                        <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {activeHistoryTarget?.unit}.</p>
+                        <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {historyTarget?.unit}.</p>
                     ) : (
                         <div className="max-h-[50vh] overflow-x-auto rounded-xl border border-brand-border/60">
                             <table className="w-full border-collapse text-left font-mono text-xs">

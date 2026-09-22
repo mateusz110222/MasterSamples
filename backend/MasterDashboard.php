@@ -11,7 +11,7 @@ date_default_timezone_set('Europe/Warsaw');
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-User');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
@@ -407,33 +407,36 @@ try {
         }
 
         case 'ActivateMaster': {
-            $unit = trim($input['unit'] ?? $input['serialNumber'] ?? '');
+            $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
 
-            if ($unit === '') {
-                sendJsonResponse(false, 'Brak parametru unit', null, 400);
+            if (empty($rawUnits)) {
+                sendJsonResponse(false, 'Brak jednostek do aktywacji', null, 400);
             }
 
+            $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', (string)$rawUnits)));
             $mysqli = getDbConnection();
             try {
                 $mysqli->begin_transaction();
                 try {
-                    $stmtHist = $mysqli->prepare(
-                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Activate', NOW()
-                         FROM masterUnits WHERE unit = ?"
-                    );
-                    $stmtHist->bind_param('ss', $user, $unit);
-                    $stmtHist->execute();
-                    $stmtHist->close();
+                    foreach ($unitList as $unit) {
+                        $stmtHist = $mysqli->prepare(
+                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
+                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Activate', NOW()
+                             FROM masterUnits WHERE unit = ?"
+                        );
+                        $stmtHist->bind_param('ss', $user, $unit);
+                        $stmtHist->execute();
+                        $stmtHist->close();
 
-                    $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 1, user = ? WHERE unit = ?");
-                    $stmtUpdate->bind_param('ss', $user, $unit);
-                    $stmtUpdate->execute();
-                    $stmtUpdate->close();
+                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 1, user = ? WHERE unit = ?");
+                        $stmtUpdate->bind_param('ss', $user, $unit);
+                        $stmtUpdate->execute();
+                        $stmtUpdate->close();
+                    }
 
                     $mysqli->commit();
-                    sendJsonResponse(true, "Master '$unit' został ponownie aktywowany (isActive=1)!");
+                    sendJsonResponse(true, "Jednostki zostały aktywowane (isActive=1)!");
                 } catch (\Throwable $err) {
                     $mysqli->rollback();
                     throw $err;
@@ -488,8 +491,8 @@ try {
             $unit = strtoupper(trim((string)($input['unit'] ?? $input['serialNumber'] ?? '')));
             $processList = trim((string)($input['process'] ?? $input['processName'] ?? ''));
             $status = strtoupper(trim((string)($input['status'] ?? 'GOOD')));
-            $maxCounter = !empty($input['maxCounter']) ? (int)$input['maxCounter'] : 1000;
-            $errorMaxCounter = !empty($input['maxErrors']) ? (int)$input['maxErrors'] : (!empty($input['errorMaxCounter']) ? (int)$input['errorMaxCounter'] : 50);
+            $maxCounter = (int)($input['maxCounter'] ?? 1000);
+            $errorMaxCounter = (int)($input['maxErrors'] ?? $input['errorMaxCounter'] ?? 50);
             $forceUpdate = !empty($input['forceUpdate']);
 
             if ($unit === '' || $processList === '') {
@@ -521,38 +524,36 @@ try {
                     ]);
                 }
 
-                // BuildingBlocks verification, unarchive & creation
-                try {
+                // BuildingBlocks verification, unarchive & creation (if loaded in environment)
+                if (class_exists('\BuildingBlocks\Unit')) {
                     try {
-                        \BuildingBlocks\Unit::Find($unit);
-                    } catch (\Throwable $findError) {
                         try {
+                            \BuildingBlocks\Unit::Find($unit);
+                        } catch (\Throwable $findError) {
                             \BuildingBlocks\Archive::GetAll($unit);
                             \BuildingBlocks\Archive::Unarchive($unit);
                             \BuildingBlocks\Unit::Find($unit);
-                        } catch (\Throwable $recoveryError) {
-                            throw new \RuntimeException('Nie znaleziono jednostki w FIS i nie udało się jej przywrócić', 0, $recoveryError);
                         }
-                    }
-                    \BuildingBlocks\Unit::Delete($unit);
+                        \BuildingBlocks\Unit::Delete($unit);
 
-                    $dcmods = "MS_HISTORY|{$unit}_MASTER|MS_PROCESS|{$processClean}|MS_STATUS|{$status}|OPERATOR|{$user}";
-                    \BuildingBlocks\Unit::DataEntry(
-                        $unit,
-                        "CREATEUNIT",
-                        "WEB",
-                        $dcmods,
-                        "ata",
-                        "",
-                        "",
-                        "",
-                        "GOLD",
-                        "",
-                        "",
-                        "GOLDEN"
-                    );
-                } catch (\Throwable $error) {
-                    throw new \RuntimeException('Nie udało się zarejestrować mastera w FIS', 0, $error);
+                        $dcmods = "MS_HISTORY|{$unit}_MASTER|MS_PROCESS|{$processClean}|MS_STATUS|{$status}|OPERATOR|{$user}";
+                        \BuildingBlocks\Unit::DataEntry(
+                            $unit,
+                            "CREATEUNIT",
+                            "WEB",
+                            $dcmods,
+                            "ata",
+                            "",
+                            "",
+                            "",
+                            "GOLD",
+                            "",
+                            "",
+                            "GOLDEN"
+                        );
+                    } catch (\Throwable $error) {
+                        throw new \RuntimeException('Nie udało się zarejestrować mastera w FIS: ' . $error->getMessage(), 0, $error);
+                    }
                 }
 
                 $mysqli->begin_transaction();

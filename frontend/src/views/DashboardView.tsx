@@ -395,7 +395,7 @@ export const DashboardView: React.FC = () => {
                     type="button"
                     onClick={clearFilters}
                     className={`interactive-button h-9 px-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all duration-200 ${
-                        Boolean(searchTerm || selectedProcess || selectedStatus || selectedActive !== 'all')
+                        searchTerm || selectedProcess || selectedStatus || selectedActive !== 'all'
                             ? 'bg-indigo-500/20 border-brand-accent text-indigo-300 hover:bg-indigo-500/30 shadow-xs'
                             : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-brand-text hover:border-brand-text-muted/60'
                     }`}

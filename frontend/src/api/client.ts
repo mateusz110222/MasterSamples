@@ -26,10 +26,6 @@ export function setSessionUser(uid: string): void {
     cachedSessionUser = uid.trim();
 }
 
-export function getSessionUser(): string {
-    return cachedSessionUser;
-}
-
 export async function apiRequest<T = unknown>(
     url: string,
     params: Record<string, string | number | boolean | undefined> = {},

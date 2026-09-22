@@ -10,21 +10,13 @@ interface UserInfoPayload {
 }
 
 const normalizeProcessTag = (item: unknown): ProcessTagItem => {
-    if (typeof item === 'string') {
-        return { key: item, description: item };
-    }
-
     if (typeof item === 'object' && item !== null) {
-        const record = item as Record<string, unknown>;
-        const key = String(record.key ?? record.name ?? record.tag ?? '');
-        return {
-            key,
-            description: String(record.description ?? record.name ?? record.key ?? key),
-        };
+        const r = item as Record<string, unknown>;
+        const key = String(r.key ?? r.name ?? r.tag ?? '');
+        return { key, description: String(r.description ?? key) };
     }
-
-    const value = String(item ?? '');
-    return { key: value, description: value };
+    const val = String(item ?? '');
+    return { key: val, description: val };
 };
 
 export const ALLOWED_GROUPS = [
