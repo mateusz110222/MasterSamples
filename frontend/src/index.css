@@ -4,14 +4,14 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
+
   --color-brand-bg: #090d16;
   --color-brand-surface: #111827;
   --color-brand-surface-high: #1f2937;
   --color-brand-accent: #6366f1;
   --color-brand-accent-hover: #4f46e5;
   --color-brand-text: #f9fafb;
-  --color-brand-text-muted: #94a3b8;
+  --color-brand-text-muted: #cbd5e1;
   --color-brand-border: #374151;
   --color-brand-danger: #ef4444;
   --color-brand-warning: #f59e0b;
@@ -31,7 +31,6 @@
     color: var(--color-brand-text);
     font-family: var(--font-sans);
     letter-spacing: -0.01em;
-    overflow-x: hidden;
   }
 
   select {
@@ -54,6 +53,10 @@
     color: var(--color-brand-text);
   }
 
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -61,30 +64,66 @@
   }
 }
 
-/* Custom industrial scrollbars */
+/* Scrollbars shared with Paletki. */
 :root {
-  --scrollbar-track: #111827;
-  --scrollbar-thumb: #374151;
-  --scrollbar-thumb-hover: #4b5563;
+  --scrollbar-track: #334155;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #e0e7ff;
 }
 
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-track {
+  border-radius: 999px;
   background: var(--scrollbar-track);
 }
 
+*::-webkit-scrollbar-track:vertical { margin-block: 8px; }
+*::-webkit-scrollbar-track:horizontal { margin-inline: 8px; }
+
 *::-webkit-scrollbar-thumb {
+  min-height: 48px;
+  border: 3px solid var(--scrollbar-track);
+  border-radius: 999px;
   background: var(--scrollbar-thumb);
-  border-radius: 6px;
-  border: 2px solid var(--scrollbar-track);
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner { background: transparent; }
+
+html { scrollbar-gutter: stable; }
+
+html:has(.staff-screen) {
+  font-size: clamp(1rem, 0.625vw, 1.5rem);
+}
+
+.staff-main > *,
+.staff-main .grid > *,
+.staff-main input,
+.staff-main select {
+  min-width: 0;
+}
+
+@layer base {
+  :where(button, a, input, select, textarea) {
+    transition-property: color, background-color, border-color, box-shadow;
+    transition-duration: 180ms;
+    transition-timing-function: ease-out;
+  }
+
+  :where(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid #a5b4fc;
+    outline-offset: 3px;
+  }
 }
 
 /* =========================================================================

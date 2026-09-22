@@ -1,20 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserInfo } from '../types';
 import { fisApi, ALLOWED_GROUPS } from '../api/fisApi';
-
-interface AuthContextType {
-    user: UserInfo | null;
-    isLoading: boolean;
-    canEdit: boolean;
-    allowedGroups: string[];
-}
-
-const AuthContext = createContext<AuthContextType>({
-    user: null,
-    isLoading: true,
-    canEdit: false,
-    allowedGroups: ALLOWED_GROUPS,
-});
+import { AuthContext } from './auth-context';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<UserInfo | null>(null);
@@ -48,5 +35,3 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         </AuthContext.Provider>
     );
 };
-
-export const useAuth = () => useContext(AuthContext);

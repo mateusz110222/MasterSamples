@@ -7,19 +7,25 @@ export const engineerApi = {
         return res.data || [];
     },
 
-    updateEngineerMail: async (process: string, mail: string): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'UpdateEngineerMail', process, mail }, { method: 'POST' });
+    updateEngineerMail: async (process: string, mail: string): Promise<ApiResponse<{ affected: number }>> => {
+        return apiRequest(API_BASE, { job: 'UpdateEngineerMail' }, {
+            method: 'POST',
+            body: JSON.stringify({ process, mail }),
+        });
     },
 
-    addEngineer: async (process: string, mail: string): Promise<ApiResponse<any>> => {
+    addEngineer: async (process: string, mail: string): Promise<ApiResponse<{ id: number }>> => {
         return apiRequest(API_BASE, { job: 'AddEngineer' }, {
             method: 'POST',
             body: JSON.stringify({ process, mail })
         });
     },
 
-    deleteEngineer: async (id: number): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'DeleteEngineer', id }, { method: 'POST' });
+    deleteEngineer: async (id: number): Promise<ApiResponse<{ affected: number }>> => {
+        return apiRequest(API_BASE, { job: 'DeleteEngineer' }, {
+            method: 'POST',
+            body: JSON.stringify({ id }),
+        });
     },
 
     // Standalone mails directory (masterSample.mails table)
@@ -28,21 +34,24 @@ export const engineerApi = {
         return res.data || [];
     },
 
-    addMail: async (name: string, mail: string): Promise<ApiResponse<any>> => {
+    addMail: async (name: string, mail: string): Promise<ApiResponse<{ id: number }>> => {
         return apiRequest(API_BASE, { job: 'AddMail' }, {
             method: 'POST',
             body: JSON.stringify({ name, mail })
         });
     },
 
-    updateMail: async (id: number, name: string, mail: string): Promise<ApiResponse<any>> => {
+    updateMail: async (id: number, name: string, mail: string): Promise<ApiResponse<{ affected: number }>> => {
         return apiRequest(API_BASE, { job: 'UpdateMail' }, {
             method: 'POST',
             body: JSON.stringify({ id, name, mail })
         });
     },
 
-    deleteMail: async (id: number): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'DeleteMail', id }, { method: 'POST' });
+    deleteMail: async (id: number): Promise<ApiResponse<{ affected: number }>> => {
+        return apiRequest(API_BASE, { job: 'DeleteMail' }, {
+            method: 'POST',
+            body: JSON.stringify({ id }),
+        });
     }
 };

@@ -1,6 +1,32 @@
 import { apiRequest, ROUTER_API_BASE, AUTH_API_BASE, API_BASE } from './client';
 import { UserInfo, ProcessTagItem } from '../types';
 
+interface UserInfoPayload {
+    userId?: string;
+    name?: string;
+    email?: string;
+    groups?: unknown;
+    canEdit?: unknown;
+}
+
+const normalizeProcessTag = (item: unknown): ProcessTagItem => {
+    if (typeof item === 'string') {
+        return { key: item, description: item };
+    }
+
+    if (typeof item === 'object' && item !== null) {
+        const record = item as Record<string, unknown>;
+        const key = String(record.key ?? record.name ?? record.tag ?? '');
+        return {
+            key,
+            description: String(record.description ?? record.name ?? record.key ?? key),
+        };
+    }
+
+    const value = String(item ?? '');
+    return { key: value, description: value };
+};
+
 export const ALLOWED_GROUPS = [
     'admin_group',
     'support_group',
@@ -26,21 +52,9 @@ export function getFisUnitHistoryUrl(unit: string, fis?: string | number): strin
 
 export const fisApi = {
     getProcessTags: async (): Promise<ProcessTagItem[]> => {
-        try {
-            const res = await apiRequest<any>(ROUTER_API_BASE, { job: 'GetProcessTags' });
-            const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-            return list.map((item: any) => {
-                if (typeof item === 'string') {
-                    return { key: item, description: item };
-                }
-                return {
-                    key: item.key || item.name || item.tag || String(item),
-                    description: item.description || item.name || item.key || String(item)
-                };
-            });
-        } catch {
-            return [];
-        }
+        const res = await apiRequest<unknown>(ROUTER_API_BASE, { job: 'GetProcessTags' });
+        const list = Array.isArray(res.data) ? res.data : [];
+        return list.map(normalizeProcessTag).filter(item => item.key !== '');
     },
 
     getCurrentUser: async (): Promise<UserInfo> => {
@@ -75,7 +89,7 @@ export const fisApi = {
 
         // 2. Fetch full user info and permissions directly from database via MasterDashboard.php?job=GetUserInfo
         try {
-            const infoRes = await apiRequest<any>(API_BASE, { job: 'GetUserInfo', userId: cleanUid });
+            const infoRes = await apiRequest<UserInfoPayload>(API_BASE, { job: 'GetUserInfo', userId: cleanUid });
             if (infoRes && infoRes.status && infoRes.data) {
                 const d = infoRes.data;
                 const groups: string[] = Array.isArray(d.groups) ? d.groups : [];

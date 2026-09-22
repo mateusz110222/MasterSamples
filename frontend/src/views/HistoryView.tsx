@@ -1,31 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { masterApi } from '../api/masterApi';
-import { HistoryRecord } from '../types';
-import { Badge } from '../components/common/Badge';
-import { 
-    History, 
-    Search, 
-    RefreshCw, 
-    Filter
+import { Badge, type BadgeVariant } from '../components/common/Badge';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { ErrorBanner } from '../components/common/ErrorBanner';
+import { getErrorMessage } from '../lib/errors';
+import {
+    History,
+    Search,
+    RefreshCw,
 } from 'lucide-react';
 
 export const HistoryView: React.FC = () => {
     const [unitFilter, setUnitFilter] = useState('');
     const [operationFilter, setOperationFilter] = useState('');
     const [userFilter, setUserFilter] = useState('');
+    const debouncedUnitFilter = useDebouncedValue(unitFilter);
+    const debouncedUserFilter = useDebouncedValue(userFilter);
 
-    const { data: historyRecords = [], isLoading, isFetching, refetch } = useQuery({
-        queryKey: ['history', unitFilter, operationFilter, userFilter],
+    const { data: historyRecords = [], isLoading, isFetching, refetch, error } = useQuery({
+        queryKey: ['history', debouncedUnitFilter, operationFilter, debouncedUserFilter],
         queryFn: () => masterApi.getHistory({
-            unit: unitFilter,
+            unit: debouncedUnitFilter,
             operation: operationFilter,
-            user: userFilter,
+            user: debouncedUserFilter,
             limit: 200
         }),
     });
 
-    const getOperationBadgeVariant = (op: string) => {
+    const getOperationBadgeVariant = (op: string): BadgeVariant => {
         switch (op.toLowerCase()) {
             case 'create':
                 return 'success';
@@ -45,17 +48,18 @@ export const HistoryView: React.FC = () => {
 
     return (
         <div className="space-y-6 animate-page-enter">
+            <ErrorBanner message={error ? getErrorMessage(error, 'Nie udało się pobrać historii.') : null} />
             {/* Header info banner */}
-            <div className="bg-[#111827] border border-[#374151] rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
                 <div className="flex items-center gap-4">
-                    <div className="p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 shrink-0">
+                    <div className="p-2.5 rounded-xl bg-brand-accent/15 border border-brand-accent/30 text-brand-accent shrink-0">
                         <History size={24} />
                     </div>
                     <div>
-                        <h2 className="text-base font-bold text-white tracking-wide">
+                        <h2 className="text-base font-bold text-brand-text tracking-wide">
                             Dziennik Zdarzeń i Audyt Produkcyjny (Tabela history)
                         </h2>
-                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        <p className="text-xs text-brand-text-muted mt-1 leading-relaxed">
                             Niezmienny rejestr wszystkich operacji przeprowadzonych na masterach produkcyjnych: rejestracja nowej sztuki, edycja limitów, zerowanie liczników, blokady i usunięcia.
                         </p>
                     </div>
@@ -64,25 +68,25 @@ export const HistoryView: React.FC = () => {
                 <button
                     onClick={() => refetch()}
                     disabled={isFetching}
-                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1f2937] border border-[#374151] text-slate-300 hover:text-white hover:border-slate-500 text-sm font-semibold cursor-pointer shrink-0"
+                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-sm font-semibold cursor-pointer shrink-0"
                 >
-                    <RefreshCw size={16} className={isFetching ? 'animate-spin text-indigo-400' : ''} />
+                    <RefreshCw size={16} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
                     <span>Odśwież</span>
                 </button>
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-[#111827] border border-[#374151] rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-2">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-2">
                 <div className="flex flex-wrap items-center gap-3 flex-1">
                     {/* SN Search */}
                     <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                         <input
                             type="text"
                             placeholder="Filtruj po numerze SN..."
                             value={unitFilter}
                             onChange={(e) => setUnitFilter(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-[#1f2937] border border-[#374151] rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-mono transition-all duration-200"
+                            className="w-full pl-10 pr-4 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-sm text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                         />
                     </div>
 
@@ -90,7 +94,7 @@ export const HistoryView: React.FC = () => {
                     <select
                         value={operationFilter}
                         onChange={(e) => setOperationFilter(e.target.value)}
-                        className="px-3.5 py-2 bg-[#1f2937] border border-[#374151] rounded-xl text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors hover:border-slate-500 cursor-pointer"
+                        className="px-3.5 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-sm text-brand-text focus:outline-none focus:border-brand-accent font-mono transition-colors hover:border-brand-text-muted/60 cursor-pointer"
                     >
                         <option value="">Wszystkie Operacje</option>
                         <option value="Create">Create (Utworzenie)</option>
@@ -108,22 +112,22 @@ export const HistoryView: React.FC = () => {
                             placeholder="Filtruj po użytkowniku..."
                             value={userFilter}
                             onChange={(e) => setUserFilter(e.target.value)}
-                            className="w-full px-3.5 py-2 bg-[#1f2937] border border-[#374151] rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-mono transition-all duration-200"
+                            className="w-full px-3.5 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-sm text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                         />
                     </div>
                 </div>
 
-                <span className="text-xs text-slate-400 font-mono">
-                    Wpisów w audycie: <strong className="text-white">{historyRecords.length}</strong>
+                <span className="text-xs text-brand-text-muted font-mono">
+                    Wpisów w audycie: <strong className="text-brand-text">{historyRecords.length}</strong>
                 </span>
             </div>
 
             {/* History Table */}
-            <div className="bg-[#111827] border border-[#374151] rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-3">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-3">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm border-collapse">
                         <thead>
-                            <tr className="bg-[#1f2937]/90 text-slate-400 font-mono text-[11px] uppercase tracking-wider border-b border-[#374151]">
+                            <tr className="bg-brand-surface-high/90 text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                 <th className="py-3.5 px-4 font-semibold">Data i Czas</th>
                                 <th className="py-3.5 px-4 font-semibold">Numer Seryjny (Unit)</th>
                                 <th className="py-3.5 px-4 font-semibold">Operacja</th>
@@ -135,41 +139,41 @@ export const HistoryView: React.FC = () => {
                                 <th className="py-3.5 px-4 font-semibold">Użytkownik</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#374151]/50 text-slate-200 font-mono text-xs">
+                        <tbody className="divide-y divide-brand-border/50 text-brand-text font-mono text-xs">
                             {isLoading ? (
                                 <tr>
-                                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                                    <td colSpan={9} className="py-12 text-center text-brand-text-muted">
                                         <div className="inline-flex items-center gap-2">
-                                            <RefreshCw className="animate-spin text-indigo-500" size={20} />
+                                            <RefreshCw className="animate-spin text-brand-accent" size={20} />
                                             <span>Ładowanie rejestru audytu...</span>
                                         </div>
                                     </td>
                                 </tr>
                             ) : historyRecords.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="py-12 text-center text-slate-500 font-sans">
+                                    <td colSpan={9} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                         Brak zarejestrowanych zdarzeń spełniających wybrane kryteria.
                                     </td>
                                 </tr>
                             ) : (
                                 historyRecords.map((rec, idx) => (
-                                    <tr 
-                                        key={rec.id} 
+                                    <tr
+                                        key={rec.id}
                                         style={{ animationDelay: `${Math.min(idx * 15, 300)}ms` }}
-                                        className="animate-row-enter hover:bg-[#1f2937]/50 transition-colors duration-150"
+                                        className="animate-row-enter hover:bg-brand-surface-high/50 transition-colors duration-150"
                                     >
-                                        <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                                        <td className="py-3 px-4 text-brand-text-muted whitespace-nowrap">
                                             {rec.date}
                                         </td>
-                                        <td className="py-3 px-4 font-bold text-white tracking-wide">
+                                        <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
                                             {rec.unit}
                                         </td>
                                         <td className="py-3 px-4">
-                                            <Badge variant={getOperationBadgeVariant(rec.operation) as any}>
+                                            <Badge variant={getOperationBadgeVariant(rec.operation)}>
                                                 {rec.operation}
                                             </Badge>
                                         </td>
-                                        <td className="py-3 px-4 text-slate-300">
+                                        <td className="py-3 px-4 text-brand-text">
                                             {rec.process}
                                         </td>
                                         <td className="py-3 px-4">
@@ -177,16 +181,16 @@ export const HistoryView: React.FC = () => {
                                                 {rec.status}
                                             </span>
                                         </td>
-                                        <td className="py-3 px-4 text-slate-300">
-                                            {rec.currentCounter} <span className="text-slate-500">/ {rec.maxCounter}</span>
+                                        <td className="py-3 px-4 text-brand-text">
+                                            {rec.currentCounter} <span className="text-brand-text-muted/70">/ {rec.maxCounter}</span>
                                         </td>
-                                        <td className="py-3 px-4 text-slate-300">
-                                            {rec.errorCounter} <span className="text-slate-500">/ {rec.errorMaxCounter}</span>
+                                        <td className="py-3 px-4 text-brand-text">
+                                            {rec.errorCounter} <span className="text-brand-text-muted/70">/ {rec.errorMaxCounter}</span>
                                         </td>
-                                        <td className="py-3 px-4 font-bold text-slate-300">
+                                        <td className="py-3 px-4 font-bold text-brand-text">
                                             {rec.globalCounter?.toLocaleString() ?? 0}
                                         </td>
-                                        <td className="py-3 px-4 text-slate-400 font-sans">
+                                        <td className="py-3 px-4 text-brand-text-muted font-sans">
                                             {rec.user || '—'}
                                         </td>
                                     </tr>

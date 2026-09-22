@@ -54,7 +54,7 @@ export interface ProcessTagItem {
     description: string;
 }
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
     status: boolean;
     message: string;
     data: T;

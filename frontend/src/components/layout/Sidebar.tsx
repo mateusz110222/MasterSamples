@@ -1,16 +1,15 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-    LayoutDashboard, 
-    PlusCircle, 
-    Cpu, 
-    Mail, 
-    History, 
+import {
+    LayoutDashboard,
+    PlusCircle,
+    Cpu,
+    Mail,
+    History,
     X,
-    ShieldCheck
 } from 'lucide-react';
-import { useAuth } from '../../auth/AuthContext';
-import { useLanguage } from '../../i18n/LanguageContext';
+import { useAuth } from '../../auth/useAuth';
+import { useLanguage } from '../../i18n/useLanguage';
 
 interface SidebarProps {
     mobileOpen: boolean;
@@ -29,74 +28,64 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
         { to: '/history', label: t.navHistory, icon: History, exact: false },
     ];
 
-    const content = (
-        <div className="flex flex-col h-full bg-[#0d1322] border-r border-[#1e293b] text-[#f9fafb] w-64 p-4 select-none">
-            <div className="space-y-6">
-                {/* Brand / Logo (PalletX style) */}
-                <div className="flex items-center justify-between px-3 pt-2 pb-4 border-b border-[#1e293b]">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-                            <ShieldCheck size={20} />
-                        </div>
-                        <div>
-                            <span className="font-extrabold text-base tracking-wider text-white block uppercase">
-                                Master Samples
-                            </span>
-                            <span className="text-[10px] font-mono tracking-widest text-indigo-400 uppercase font-semibold">
-                                {t.brandSubtitle}
-                            </span>
-                        </div>
-                    </div>
-                    {/* Close button on mobile */}
-                    <button
-                        onClick={onMobileClose}
-                        className="lg:hidden p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg cursor-pointer"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Navigation Links (PalletX style: uppercase, icon on left) */}
-                <nav className="space-y-1.5">
-                    {navItems.map((item) => (
-                        <NavLink
-                            key={item.to}
-                            to={item.to}
-                            end={item.exact}
-                            onClick={onMobileClose}
-                            className={({ isActive }) => `
-                                group flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold tracking-wide transition-all duration-200
-                                ${isActive 
-                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25 border border-indigo-400/30' 
-                                    : 'text-slate-400 hover:text-white hover:bg-[#161f32] hover:translate-x-1'
-                                }
-                            `}
-                        >
-                            <item.icon size={17} className="transition-transform duration-200 group-hover:scale-110" />
-                            <span>{item.label}</span>
-                        </NavLink>
-                    ))}
-                </nav>
-            </div>
-        </div>
+    const navigation = (onNavigate?: () => void) => (
+        <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+            {navItems.map((item) => (
+                <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.exact}
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                        `app-nav-link flex w-full items-center gap-3 rounded px-4 py-3 text-xs font-bold uppercase tracking-wider transition-all ${
+                            isActive
+                                ? 'border-l-4 border-brand-accent bg-brand-accent/15 text-brand-accent'
+                                : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
+                        }`
+                    }
+                >
+                    <item.icon size={16} className="shrink-0" />
+                    {item.label}
+                </NavLink>
+            ))}
+        </nav>
     );
 
     return (
         <>
-            <aside className="hidden lg:block shrink-0 sticky top-0 h-screen z-30">
-                {content}
+            <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-brand-border bg-brand-surface lg:flex">
+                <div className="border-b border-brand-border p-6">
+                    <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
+                    <span className="mt-1 block font-mono text-[10px] font-semibold uppercase tracking-widest text-brand-text-muted">{t.brandSubtitle}</span>
+                </div>
+                {navigation()}
             </aside>
 
             {mobileOpen && (
-                <div className="fixed inset-0 z-50 lg:hidden flex">
-                    <div
-                        className="fixed inset-0 bg-black/80 backdrop-blur-xs animate-modal-backdrop"
+                <div className="lg:hidden">
+                    <button
+                        type="button"
+                        className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm"
                         onClick={onMobileClose}
-                        aria-hidden="true"
+                        aria-label="Close navigation"
                     />
-                    <div className="relative z-10 animate-drawer-in">
-                        {content}
-                    </div>
+                    <aside
+                        id="mobile-navigation"
+                        className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-brand-border bg-brand-surface shadow-2xl animate-drawer-in"
+                    >
+                        <div className="flex items-center justify-between border-b border-brand-border p-5">
+                            <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
+                            <button
+                                type="button"
+                                onClick={onMobileClose}
+                                className="flex size-10 items-center justify-center rounded-lg border border-brand-border text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text"
+                                aria-label="Close navigation"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        {navigation(onMobileClose)}
+                    </aside>
                 </div>
             )}
         </>

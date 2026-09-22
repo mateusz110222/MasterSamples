@@ -1,12 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { useState, ReactNode } from 'react';
+import { LanguageContext } from './language-context';
 
 export type Language = 'PL' | 'EN';
 
-export const translations = {
+const translations = {
     PL: {
         // App title / branding
         brandSubtitle: 'BorgWarner FIS QA',
-        
+
         // Navigation
         navDashboard: 'BAZA I AUDYT (DASHBOARD)',
         navCreate: 'DODAJ NOWEGO MASTERA',
@@ -339,15 +340,13 @@ export const translations = {
     }
 };
 
-type TranslationsType = typeof translations.PL;
+export type TranslationsType = typeof translations.PL;
 
-interface LanguageContextType {
+export interface LanguageContextType {
     language: Language;
     setLanguage: (lang: Language) => void;
     t: TranslationsType;
 }
-
-const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [language, setLanguageState] = useState<Language>(() => {
@@ -367,12 +366,4 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
             {children}
         </LanguageContext.Provider>
     );
-};
-
-export const useLanguage = (): LanguageContextType => {
-    const context = useContext(LanguageContext);
-    if (!context) {
-        throw new Error('useLanguage must be used within a LanguageProvider');
-    }
-    return context;
 };

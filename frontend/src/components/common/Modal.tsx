@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -19,24 +19,62 @@ export const Modal: React.FC<ModalProps> = ({
     children,
     maxWidth = 'md'
 }) => {
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const onCloseRef = useRef(onClose);
+    const titleId = useId();
+    const descriptionId = useId();
+
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
     useEffect(() => {
         if (!isOpen) return;
 
+        const previouslyFocused = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                onClose();
+                onCloseRef.current();
+                return;
+            }
+
+            if (e.key === 'Tab' && dialogRef.current) {
+                const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+                    'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+                ));
+                if (focusable.length === 0) {
+                    e.preventDefault();
+                    dialogRef.current.focus();
+                    return;
+                }
+
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
             }
         };
 
         const originalOverflow = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
+        const animationFrame = window.requestAnimationFrame(() => dialogRef.current?.focus());
 
         window.addEventListener('keydown', handleKeyDown);
         return () => {
+            window.cancelAnimationFrame(animationFrame);
             window.removeEventListener('keydown', handleKeyDown);
             document.body.style.overflow = originalOverflow;
+            previouslyFocused?.focus();
         };
-    }, [isOpen, onClose]);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -50,23 +88,31 @@ export const Modal: React.FC<ModalProps> = ({
 
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/80 backdrop-blur-sm animate-modal-backdrop">
-            <div 
-                className="fixed inset-0 cursor-pointer" 
-                onClick={onClose} 
-                aria-hidden="true" 
+            <div
+                className="fixed inset-0 cursor-pointer"
+                onClick={onClose}
+                aria-hidden="true"
             />
-            
-            <div className={`relative w-full ${maxWidthClasses} bg-[#111827] border border-[#374151] rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-[#f9fafb] animate-modal-pop my-auto`}>
-                <div className="flex items-start justify-between gap-4 pb-3 border-b border-[#374151]/60">
+
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={description ? descriptionId : undefined}
+                tabIndex={-1}
+                className={`relative w-full ${maxWidthClasses} bg-brand-surface border border-brand-border rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-brand-text animate-modal-pop my-auto`}
+            >
+                <div className="flex items-start justify-between gap-4 pb-3 border-b border-brand-border/60">
                     <div>
-                        <h3 className="text-lg font-bold tracking-tight text-white">{title}</h3>
+                        <h3 id={titleId} className="text-lg font-bold tracking-tight text-brand-text">{title}</h3>
                         {description && (
-                            <p className="text-xs text-[#94a3b8] mt-1">{description}</p>
+                            <p id={descriptionId} className="text-xs text-brand-text-muted mt-1">{description}</p>
                         )}
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-xl text-[#94a3b8] hover:text-white hover:bg-[#1f2937] transition-all duration-200 hover:rotate-90 active:scale-90 cursor-pointer"
+                        className="p-1.5 rounded-xl text-brand-text-muted hover:text-brand-text hover:bg-brand-surface-high transition-all duration-200 hover:rotate-90 active:scale-90 cursor-pointer"
                         aria-label="Close"
                     >
                         <X size={18} />

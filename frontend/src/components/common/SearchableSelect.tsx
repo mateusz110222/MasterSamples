@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useId, useMemo } from 'react';
 import { ChevronDown, Search, X, Check } from 'lucide-react';
 
 export interface SelectOption {
@@ -34,6 +34,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const listboxId = useId();
 
     // Currently selected option
     const selectedOption = useMemo(() => {
@@ -44,8 +45,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     const filteredOptions = useMemo(() => {
         if (!searchQuery.trim()) return options;
         const q = searchQuery.toLowerCase().trim();
-        return options.filter(opt => 
-            opt.value.toLowerCase().includes(q) || 
+        return options.filter(opt =>
+            opt.value.toLowerCase().includes(q) ||
             opt.label.toLowerCase().includes(q) ||
             (opt.description && opt.description.toLowerCase().includes(q))
         );
@@ -144,53 +145,62 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             )}
 
             {/* Trigger Button */}
-            <div
+            <div className="relative">
+            <button
+                type="button"
                 onClick={() => !disabled && setIsOpen(prev => !prev)}
-                className={`w-full min-h-[46px] px-3.5 py-2.5 bg-[#1f2937] border rounded-xl flex items-center justify-between gap-2 text-sm font-mono transition-all cursor-pointer ${
-                    disabled 
-                        ? 'opacity-50 cursor-not-allowed border-[#374151]' 
-                        : isOpen 
-                            ? 'border-indigo-500 ring-2 ring-indigo-500/20 shadow-md' 
-                            : 'border-[#374151] hover:border-slate-500'
+                disabled={disabled}
+                role="combobox"
+                aria-expanded={isOpen}
+                aria-controls={listboxId}
+                aria-haspopup="listbox"
+                aria-activedescendant={highlightedIndex >= 0 ? `${listboxId}-option-${highlightedIndex}` : undefined}
+                className={`w-full min-h-[46px] px-3.5 py-2.5 bg-brand-surface-high border rounded-xl flex items-center justify-between gap-2 text-left text-sm font-mono transition-all cursor-pointer ${
+                    disabled
+                        ? 'opacity-50 cursor-not-allowed border-brand-border'
+                        : isOpen
+                            ? 'border-brand-accent ring-2 ring-brand-accent/20 shadow-md'
+                            : 'border-brand-border hover:border-brand-text-muted/60'
                 }`}
             >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                     {selectedOption ? (
                         <div className="flex items-baseline gap-2 truncate">
-                            <span className="font-bold text-white">{selectedOption.value}</span>
+                            <span className="font-bold text-brand-text">{selectedOption.value}</span>
                             {selectedOption.description && selectedOption.description !== selectedOption.value && (
-                                <span className="text-xs text-slate-400 font-sans truncate">
+                                <span className="text-xs text-brand-text-muted font-sans truncate">
                                     — {selectedOption.description}
                                 </span>
                             )}
                         </div>
                     ) : (
-                        <span className="text-slate-500 font-sans">{placeholder}</span>
+                        <span className="text-brand-text-muted/70 font-sans">{placeholder}</span>
                     )}
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                    {selectedOption && !disabled && (
-                        <button
-                            type="button"
-                            onClick={handleClear}
-                            className="p-1 text-slate-400 hover:text-white rounded-md transition-colors"
-                            title="Wyczyść wybór"
-                        >
-                            <X size={14} />
-                        </button>
-                    )}
-                    <ChevronDown size={16} className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-400' : ''}`} />
+                    <ChevronDown size={16} className={`text-brand-text-muted transition-transform duration-200 ${isOpen ? 'rotate-180 text-brand-accent' : ''}`} />
                 </div>
+            </button>
+            {selectedOption && !disabled && (
+                <button
+                    type="button"
+                    onClick={handleClear}
+                    className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-brand-text-muted hover:text-brand-text rounded-md transition-colors"
+                    aria-label="Wyczyść wybór"
+                >
+                    <X size={14} />
+                </button>
+            )}
             </div>
 
             {/* Dropdown Menu */}
             {isOpen && (
-                <div className="absolute z-50 left-0 right-0 mt-1.5 bg-[#161f32] border border-[#374151] rounded-xl shadow-2xl overflow-hidden animate-scale-in">
+                <div className="absolute z-50 left-0 right-0 mt-1.5 bg-brand-surface-high border border-brand-border rounded-xl shadow-2xl overflow-hidden animate-scale-in">
                     {/* Search Input */}
-                    <div className="p-2 border-b border-[#374151]/80 bg-[#111827]">
+                    <div className="p-2 border-b border-brand-border/80 bg-brand-surface">
                         <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-text-muted" size={15} />
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -200,28 +210,30 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                     setHighlightedIndex(0);
                                 }}
                                 placeholder="Wpisz, aby filtrować procesy..."
-                                className="w-full pl-9 pr-8 py-2 bg-[#1f2937] border border-[#374151] rounded-lg text-xs text-white placeholder-slate-400 font-mono focus:outline-none focus:border-indigo-500 transition-colors"
+                                aria-label="Filtruj opcje"
+                                aria-controls={listboxId}
+                                className="w-full pl-9 pr-8 py-2 bg-brand-surface-high border border-brand-border rounded-lg text-xs text-brand-text placeholder-brand-text-muted/60 font-mono focus:outline-none focus:border-brand-accent transition-colors"
                             />
                             {searchQuery && (
                                 <button
                                     type="button"
                                     onClick={() => setSearchQuery('')}
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brand-text-muted hover:text-brand-text"
                                 >
                                     <X size={13} />
                                 </button>
                             )}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono px-1 pt-1.5 flex justify-between">
+                        <div className="text-[10px] text-brand-text-muted font-mono px-1 pt-1.5 flex justify-between">
                             <span>Pasuje: {filteredOptions.length} z {options.length}</span>
                             {searchQuery && <span>Naciśnij Enter, aby wybrać</span>}
                         </div>
                     </div>
 
                     {/* Options List */}
-                    <div ref={listRef} className="max-h-60 overflow-y-auto p-1.5 space-y-0.5" role="listbox">
+                    <div id={listboxId} ref={listRef} className="max-h-60 overflow-y-auto p-1.5 space-y-0.5" role="listbox">
                         {filteredOptions.length === 0 ? (
-                            <div className="py-6 text-center text-xs text-slate-400 font-sans">
+                            <div className="py-6 text-center text-xs text-brand-text-muted font-sans">
                                 {emptyText} &quot;{searchQuery}&quot;
                             </div>
                         ) : (
@@ -232,29 +244,30 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                 return (
                                     <div
                                         key={opt.value}
+                                        id={`${listboxId}-option-${idx}`}
                                         role="option"
                                         aria-selected={isSelected}
                                         onClick={() => handleSelect(opt.value)}
                                         onMouseEnter={() => setHighlightedIndex(idx)}
                                         className={`px-3 py-2 rounded-lg text-xs font-mono flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                                             isSelected
-                                                ? 'bg-indigo-600 text-white font-bold'
+                                                ? 'bg-brand-accent text-brand-text font-bold'
                                                 : isHighlighted
-                                                    ? 'bg-[#1f2937] text-white'
-                                                    : 'text-slate-300 hover:bg-[#1f2937] hover:text-white'
+                                                    ? 'bg-brand-surface-high text-brand-text'
+                                                    : 'text-brand-text hover:bg-brand-surface-high hover:text-brand-text'
                                         }`}
                                     >
                                         <div className="flex items-baseline gap-2 truncate">
                                             <span className="font-bold">{opt.value}</span>
                                             {opt.description && opt.description !== opt.value && (
-                                                <span className={`text-[11px] font-sans truncate ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                                <span className={`text-[11px] font-sans truncate ${isSelected ? 'text-indigo-200' : 'text-brand-text-muted'}`}>
                                                     — {opt.description}
                                                 </span>
                                             )}
                                         </div>
 
                                         {isSelected && (
-                                            <Check size={15} className="shrink-0 text-white" />
+                                            <Check size={15} className="shrink-0 text-brand-text" />
                                         )}
                                     </div>
                                 );

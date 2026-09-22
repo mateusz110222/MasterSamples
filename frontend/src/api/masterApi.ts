@@ -14,8 +14,15 @@ export interface CreateMasterPayload {
     status: 'GOOD' | 'BAD';
     maxCounter: number;
     maxErrors: number;
-    user: string;
     forceUpdate?: boolean;
+}
+
+export interface CreateMasterResult {
+    exists?: boolean;
+    oldData?: Partial<MasterUnit>;
+    newData?: Partial<MasterUnit>;
+    unit?: string;
+    operation?: string;
 }
 
 export const masterApi = {
@@ -29,29 +36,41 @@ export const masterApi = {
         return res.data;
     },
 
-    createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<any>> => {
+    createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<CreateMasterResult>> => {
         return apiRequest(API_BASE, { job: 'CreateMaster' }, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
     },
 
-    resetCounters: async (units: string | string[], resetType: ResetType = 'all', user: string): Promise<ApiResponse<any>> => {
+    resetCounters: async (units: string | string[], resetType: ResetType = 'all'): Promise<ApiResponse<{ count: number; resetType: ResetType }>> => {
         const unitParam = Array.isArray(units) ? units.join(',') : units;
-        return apiRequest(API_BASE, { job: 'ResetCounters', units: unitParam, resetType, user }, { method: 'POST' });
+        return apiRequest(API_BASE, { job: 'ResetCounters' }, {
+            method: 'POST',
+            body: JSON.stringify({ units: unitParam, resetType }),
+        });
     },
 
-    blockMaster: async (units: string | string[], user: string): Promise<ApiResponse<any>> => {
+    blockMaster: async (units: string | string[]): Promise<ApiResponse<unknown>> => {
         const unitParam = Array.isArray(units) ? units.join(',') : units;
-        return apiRequest(API_BASE, { job: 'BlockMaster', units: unitParam, user }, { method: 'POST' });
+        return apiRequest(API_BASE, { job: 'BlockMaster' }, {
+            method: 'POST',
+            body: JSON.stringify({ units: unitParam }),
+        });
     },
 
-    activateMaster: async (unit: string, user: string): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'ActivateMaster', unit, user }, { method: 'POST' });
+    activateMaster: async (unit: string): Promise<ApiResponse<unknown>> => {
+        return apiRequest(API_BASE, { job: 'ActivateMaster' }, {
+            method: 'POST',
+            body: JSON.stringify({ unit }),
+        });
     },
 
-    deleteMaster: async (unit: string, user: string): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'DeleteMaster', unit, user }, { method: 'POST' });
+    deleteMaster: async (unit: string): Promise<ApiResponse<{ affected_rows: number }>> => {
+        return apiRequest(API_BASE, { job: 'DeleteMaster' }, {
+            method: 'POST',
+            body: JSON.stringify({ unit }),
+        });
     },
 
     getMasterHistory: async (unit: string): Promise<HistoryRecord[]> => {

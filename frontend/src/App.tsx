@@ -9,6 +9,7 @@ import { CreateMasterView } from './views/CreateMasterView';
 import { BlockedMachinesView } from './views/BlockedMachinesView';
 import { EngineersView } from './views/EngineersView';
 import { HistoryView } from './views/HistoryView';
+import { RequireEdit } from './auth/RequireEdit';
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -29,9 +30,9 @@ export const App: React.FC = () => {
                         <Routes>
                             <Route path="/" element={<MainLayout />}>
                                 <Route index element={<DashboardView />} />
-                                <Route path="create" element={<CreateMasterView />} />
+                                <Route path="create" element={<RequireEdit><CreateMasterView /></RequireEdit>} />
                                 <Route path="blocked-machines" element={<BlockedMachinesView />} />
-                                <Route path="admin/processes" element={<EngineersView />} />
+                                <Route path="admin/processes" element={<RequireEdit><EngineersView /></RequireEdit>} />
                                 <Route path="history" element={<HistoryView />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Route>

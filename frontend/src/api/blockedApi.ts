@@ -7,7 +7,10 @@ export const blockedApi = {
         return res.data || [];
     },
 
-    deleteBlockedMachine: async (filename: string): Promise<ApiResponse<any>> => {
-        return apiRequest(API_BASE, { job: 'DeleteBlockedMachine', filename }, { method: 'POST' });
+    deleteBlockedMachine: async (filename: string): Promise<ApiResponse<unknown>> => {
+        return apiRequest(API_BASE, { job: 'DeleteBlockedMachine' }, {
+            method: 'POST',
+            body: JSON.stringify({ filename }),
+        });
     }
 };

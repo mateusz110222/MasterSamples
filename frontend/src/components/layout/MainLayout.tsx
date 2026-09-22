@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { Menu, User } from 'lucide-react';
-import { useAuth } from '../../auth/AuthContext';
-import { useLanguage } from '../../i18n/LanguageContext';
+import { Menu, UserCheck } from 'lucide-react';
+import { useAuth } from '../../auth/useAuth';
+import { useLanguage } from '../../i18n/useLanguage';
 
 export const MainLayout: React.FC = () => {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -39,9 +39,9 @@ export const MainLayout: React.FC = () => {
                     sub: t.headerHistorySub
                 };
             default:
-                return { 
-                    title: 'Master Samples Dashboard', 
-                    sub: 'Production Master Samples System' 
+                return {
+                    title: 'Master Samples Dashboard',
+                    sub: 'Production Master Samples System'
                 };
         }
     };
@@ -49,67 +49,65 @@ export const MainLayout: React.FC = () => {
     const { title, sub } = getPageDetails(location.pathname);
 
     return (
-        <div className="flex min-h-screen bg-[#070b14] text-[#f9fafb] font-sans antialiased selection:bg-indigo-600 selection:text-white">
+        <div className="staff-screen flex min-h-screen flex-col bg-brand-bg font-sans text-brand-text selection:bg-brand-accent selection:text-brand-bg lg:flex-row">
             <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
 
-            <div className="flex-1 flex flex-col min-w-0">
-                {/* Top Bar matching PalletX */}
-                <header className="sticky top-0 z-20 bg-[#0c1220]/95 backdrop-blur-md border-b border-[#1e293b] px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+            <main className="staff-main min-w-0 flex-1 space-y-6 p-4 sm:p-6 xl:p-8 w-full">
+                <header className="flex flex-wrap items-center justify-between gap-4 border-b border-brand-border/50 pb-4">
+                    <div className="flex items-start gap-3">
                         <button
                             type="button"
                             onClick={() => setMobileNavOpen(true)}
-                            className="lg:hidden p-2 rounded-xl border border-[#1e293b] bg-[#161f32] text-slate-300 hover:text-white cursor-pointer"
+                            className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl border border-brand-border bg-brand-surface text-brand-accent transition-colors hover:bg-brand-surface-high lg:hidden"
                             aria-label="Open navigation"
+                            aria-controls="mobile-navigation"
+                            aria-expanded={mobileNavOpen}
                         >
-                            <Menu size={20} />
+                            <Menu size={22} />
                         </button>
                         <div>
-                            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">{title}</h1>
-                            <p className="text-xs text-slate-400 font-medium mt-0.5 hidden sm:block">{sub}</p>
+                            <h1 className="text-2xl font-extrabold text-brand-text">{title}</h1>
+                            <p className="mt-1 text-xs font-medium text-brand-text-muted">{sub}</p>
                         </div>
                     </div>
 
-                    {/* Top Right: Language Switcher & PalletX User Profile Card */}
-                    <div className="flex items-center gap-3">
-                        {/* Language Switcher Pill (PalletX style) */}
-                        <div className="flex items-center bg-[#161f32] border border-[#1e293b] rounded-xl p-1 text-xs font-mono font-bold">
+                    <div className="flex min-w-0 flex-wrap items-center gap-4">
+                        <div className="flex items-center rounded-xl border border-brand-border bg-brand-surface p-1 font-mono text-xs font-bold">
                             <button
                                 type="button"
                                 onClick={() => setLanguage('PL')}
-                                className={`interactive-pill px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                                    language === 'PL' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                                className={`rounded-lg px-2.5 py-1 transition-colors ${
+                                    language === 'PL' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                                 }`}
                             >
-                                PL PL
+                                PL
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setLanguage('EN')}
-                                className={`interactive-pill px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                                    language === 'EN' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                                className={`rounded-lg px-2.5 py-1 transition-colors ${
+                                    language === 'EN' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                                 }`}
                             >
-                                GB EN
+                                EN
                             </button>
                         </div>
 
-                        {/* User Profile Card (PalletX style) */}
                         {user && (
-                            <div className="flex items-center gap-3 bg-[#111827] border border-[#1e293b] px-3.5 py-2 rounded-xl shadow-md hover-lift transition-all">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-xs shrink-0">
-                                    <User size={16} />
+                            <div className="flex min-w-0 max-w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface px-4 py-2">
+                                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-brand-accent/30 bg-brand-accent/15 text-xs font-bold text-brand-accent">
+                                    <UserCheck size={16} />
                                 </div>
-                                <div className="text-left leading-tight hidden md:block">
-                                    <p className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5">
+                                <div className="min-w-0 break-words text-left">
+                                    <p className="flex items-center gap-1.5 text-xs font-black leading-tight text-brand-text">
                                         <span>{user.name || user.uid}</span>
                                         {canEdit && (
-                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1 rounded font-mono border border-emerald-500/30">
+                                            <span className="rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
                                                 ADMIN
                                             </span>
                                         )}
                                     </p>
-                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                    <p className="font-mono text-[10px] leading-tight text-brand-text-muted">
                                         {user.email || (user.groups && user.groups.length > 0 ? user.groups.slice(0, 2).join(', ') : 'BLN - Production QA')}
                                     </p>
                                 </div>
@@ -118,11 +116,8 @@ export const MainLayout: React.FC = () => {
                     </div>
                 </header>
 
-                {/* Main View Area */}
-                <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto space-y-6">
-                    <Outlet />
-                </main>
-            </div>
+                <Outlet />
+            </main>
         </div>
     );
 };

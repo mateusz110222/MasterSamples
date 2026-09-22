@@ -92,12 +92,68 @@ function getRequestData(): array
 
 function getCurrentUser(array $input): string
 {
+    $authenticated = getAuthenticatedUser();
+    if ($authenticated !== '') {
+        return $authenticated;
+    }
+
     $user = trim((string)($input['user'] ?? $input['userId'] ?? ''));
     if ($user !== '') {
         return trim($user, " \t\n\r\0\x0B\"'");
     }
-    $remote = getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? '');
-    return !empty($remote) ? trim((string)$remote, " \t\n\r\0\x0B\"'") : 'SYSTEM';
+    return 'SYSTEM';
+}
+
+function getAuthenticatedUser(): string
+{
+    $candidates = [
+        $_SERVER['REMOTE_USER'] ?? '',
+        $_SERVER['AUTH_USER'] ?? '',
+        $_SERVER['PHP_AUTH_USER'] ?? '',
+        getenv('REMOTE_USER') ?: '',
+    ];
+
+    foreach ($candidates as $candidate) {
+        $user = trim((string)$candidate, " \t\n\r\0\x0B\"'");
+        if ($user === '') {
+            continue;
+        }
+        if (str_contains($user, '\\')) {
+            $user = substr($user, (int)strrpos($user, '\\') + 1);
+        }
+        return $user;
+    }
+
+    return '';
+}
+
+function getUserGroups(string $userId): array
+{
+    try {
+        $groups = \BuildingBlocks\Lib::GetUserGroup($userId);
+        return is_array($groups) ? array_values(array_map('strval', $groups)) : [];
+    } catch (\Throwable $error) {
+        error_log("MasterDashboard authorization lookup failed: {$error->getMessage()}");
+        return [];
+    }
+}
+
+function requireWriteAccess(): string
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        sendJsonResponse(false, 'Ta operacja wymaga metody POST', null, 405);
+    }
+
+    $userId = getAuthenticatedUser();
+    if ($userId === '') {
+        sendJsonResponse(false, 'Brak uwierzytelnionego użytkownika', null, 401);
+    }
+
+    if (empty(array_intersect(getUserGroups($userId), ALLOWED_GROUPS))) {
+        sendJsonResponse(false, 'Brak uprawnień do wykonania tej operacji', null, 403);
+    }
+
+    return $userId;
 }
 
 $input = getRequestData();
@@ -127,12 +183,7 @@ try {
             ];
 
             // 1. Fetch user groups via BuildingBlocks Lib::GetUserGroup
-            try {
-                $bbGroups = \BuildingBlocks\Lib::GetUserGroup($userId);
-                if (is_array($bbGroups)) {
-                    $userInfo['groups'] = array_values(array_map('strval', $bbGroups));
-                }
-            } catch (\Throwable) {}
+            $userInfo['groups'] = getUserGroups($userId);
 
             $userInfo['canEdit'] = !empty(array_intersect($userInfo['groups'], ALLOWED_GROUPS));
 
@@ -146,7 +197,9 @@ try {
                     if (!empty($row['email'])) $userInfo['email'] = (string)$row['email'];
                 }
                 $localDb->close();
-            } catch (\Throwable) {}
+            } catch (\Throwable $error) {
+                error_log("MasterDashboard local user lookup failed: {$error->getMessage()}");
+            }
 
             sendJsonResponse(true, 'Pobrano dane użytkownika', $userInfo);
             break;
@@ -238,7 +291,7 @@ try {
 
         case 'ResetCounters': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
-            $user = getCurrentUser($input);
+            $user = requireWriteAccess();
             $resetType = strtolower(trim((string)($input['resetType'] ?? 'all'))); // 'all' | 'cycles' | 'errors'
 
             if (empty($rawUnits)) {
@@ -308,7 +361,7 @@ try {
 
         case 'BlockMaster': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
-            $user = getCurrentUser($input);
+            $user = requireWriteAccess();
 
             if (empty($rawUnits)) {
                 sendJsonResponse(false, 'Brak jednostek do zablokowania', null, 400);
@@ -349,7 +402,7 @@ try {
 
         case 'ActivateMaster': {
             $unit = trim($input['unit'] ?? $input['serialNumber'] ?? '');
-            $user = getCurrentUser($input);
+            $user = requireWriteAccess();
 
             if ($unit === '') {
                 sendJsonResponse(false, 'Brak parametru unit', null, 400);
@@ -387,7 +440,7 @@ try {
 
         case 'DeleteMaster': {
             $unit = trim($input['unit'] ?? $input['serialNumber'] ?? '');
-            $user = getCurrentUser($input);
+            $user = requireWriteAccess();
 
             if ($unit === '') {
                 sendJsonResponse(false, 'Brak parametru unit', null, 400);
@@ -425,12 +478,12 @@ try {
         }
 
         case 'CreateMaster': {
+            $user = requireWriteAccess();
             $unit = strtoupper(trim((string)($input['unit'] ?? $input['serialNumber'] ?? '')));
             $processList = trim((string)($input['process'] ?? $input['processName'] ?? ''));
             $status = strtoupper(trim((string)($input['status'] ?? 'GOOD')));
             $maxCounter = !empty($input['maxCounter']) ? (int)$input['maxCounter'] : 1000;
             $errorMaxCounter = !empty($input['maxErrors']) ? (int)$input['maxErrors'] : (!empty($input['errorMaxCounter']) ? (int)$input['errorMaxCounter'] : 50);
-            $user = getCurrentUser($input);
             $forceUpdate = !empty($input['forceUpdate']);
 
             if ($unit === '' || $processList === '') {
@@ -466,12 +519,14 @@ try {
                 try {
                     try {
                         \BuildingBlocks\Unit::Find($unit);
-                    } catch (\Throwable) {
+                    } catch (\Throwable $findError) {
                         try {
                             \BuildingBlocks\Archive::GetAll($unit);
                             \BuildingBlocks\Archive::Unarchive($unit);
                             \BuildingBlocks\Unit::Find($unit);
-                        } catch (\Throwable) {}
+                        } catch (\Throwable $recoveryError) {
+                            throw new \RuntimeException('Nie znaleziono jednostki w FIS i nie udało się jej przywrócić', 0, $recoveryError);
+                        }
                     }
                     \BuildingBlocks\Unit::Delete($unit);
 
@@ -490,7 +545,9 @@ try {
                         "",
                         "GOLDEN"
                     );
-                } catch (\Throwable) {}
+                } catch (\Throwable $error) {
+                    throw new \RuntimeException('Nie udało się zarejestrować mastera w FIS', 0, $error);
+                }
 
                 $mysqli->begin_transaction();
                 try {
@@ -658,6 +715,7 @@ try {
         }
 
         case 'DeleteBlockedMachine': {
+            requireWriteAccess();
             $record = trim($input['record'] ?? $input['filename'] ?? '');
             if ($record === '') {
                 sendJsonResponse(false, 'Brak parametru record/filename', null, 400);
@@ -692,6 +750,7 @@ try {
         }
 
         case 'UpdateEngineerMail': {
+            requireWriteAccess();
             $process = trim($input['process'] ?? '');
             $mail = trim($input['mail'] ?? '');
 
@@ -715,6 +774,7 @@ try {
         }
 
         case 'AddEngineer': {
+            requireWriteAccess();
             $process = trim($input['process'] ?? '');
             $mail = trim($input['mail'] ?? '');
 
@@ -741,6 +801,7 @@ try {
         }
 
         case 'DeleteEngineer': {
+            requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : null;
             $process = trim($input['process'] ?? '');
 
@@ -781,6 +842,7 @@ try {
         }
 
         case 'AddMail': {
+            requireWriteAccess();
             $name = trim($input['name'] ?? '');
             $mail = trim($input['mail'] ?? '');
 
@@ -808,6 +870,7 @@ try {
         }
 
         case 'UpdateMail': {
+            requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : 0;
             $name = trim($input['name'] ?? '');
             $mail = trim($input['mail'] ?? '');
@@ -832,6 +895,7 @@ try {
         }
 
         case 'DeleteMail': {
+            requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : 0;
             if ($id <= 0) {
                 sendJsonResponse(false, 'Nieprawidłowe ID maila', null, 400);
@@ -856,8 +920,11 @@ try {
             sendJsonResponse(false, "Nieznany job: '$job'", null, 404);
     }
 } catch (\Throwable $e) {
-    sendJsonResponse(false, "Błąd serwera: " . $e->getMessage(), [
-        'file' => basename($e->getFile()),
-        'line' => $e->getLine(),
-    ], 500);
+    error_log(sprintf(
+        'MasterDashboard error: %s in %s:%d',
+        $e->getMessage(),
+        $e->getFile(),
+        $e->getLine()
+    ));
+    sendJsonResponse(false, 'Wewnętrzny błąd serwera', null, 500);
 }

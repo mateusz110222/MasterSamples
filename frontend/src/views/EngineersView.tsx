@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { engineerApi } from '../api/engineerApi';
 import { Engineer, MailItem } from '../types';
-import { useAuth } from '../auth/AuthContext';
-import { useLanguage } from '../i18n/LanguageContext';
+import { useAuth } from '../auth/useAuth';
+import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
-import { 
-    Mail, 
-    Plus, 
-    Edit2, 
-    Trash2, 
-    Search, 
+import { ErrorBanner } from '../components/common/ErrorBanner';
+import { getErrorMessage } from '../lib/errors';
+import { useEngineerActions, useEngineersQuery, useMailsQuery } from '../hooks/useEngineers';
+import {
+    Mail,
+    Plus,
+    Edit2,
+    Trash2,
+    Search,
     RefreshCw,
     Contact,
     Layers
@@ -19,7 +20,6 @@ import {
 export const EngineersView: React.FC = () => {
     const { canEdit } = useAuth();
     const { t } = useLanguage();
-    const queryClient = useQueryClient();
 
     // Active tab: 'processes' (engineers table) or 'mails' (mails table)
     const [activeTab, setActiveTab] = useState<'processes' | 'mails'>('processes');
@@ -41,74 +41,37 @@ export const EngineersView: React.FC = () => {
     const [editMailName, setEditMailName] = useState('');
     const [editMailAddress, setEditMailAddress] = useState('');
     const [deleteMailTarget, setDeleteMailTarget] = useState<MailItem | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
 
     // --- Queries ---
-    const { data: engineers = [], isLoading: engLoading, isFetching: engFetching, refetch: refetchEngineers } = useQuery({
-        queryKey: ['engineers'],
-        queryFn: () => engineerApi.getEngineers(),
-    });
-
-    const { data: mails = [], isLoading: mailsLoading, isFetching: mailsFetching, refetch: refetchMails } = useQuery({
-        queryKey: ['mails'],
-        queryFn: () => engineerApi.getMails(),
-    });
+    const { data: engineers = [], isLoading: engLoading, isFetching: engFetching, refetch: refetchEngineers, error: engineersError } = useEngineersQuery();
+    const { data: mails = [], isLoading: mailsLoading, isFetching: mailsFetching, refetch: refetchMails, error: mailsError } = useMailsQuery();
 
     // --- Process Mutations ---
-    const updateProcessMutation = useMutation({
-        mutationFn: ({ process, mail }: { process: string; mail: string }) => 
-            engineerApi.updateEngineerMail(process, mail),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['engineers'] });
-            setEditProcessTarget(null);
-        }
-    });
-
-    const addProcessMutation = useMutation({
-        mutationFn: ({ process, mail }: { process: string; mail: string }) => 
-            engineerApi.addEngineer(process, mail),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['engineers'] });
+    const {
+        updateProcessMutation,
+        addProcessMutation,
+        deleteProcessMutation,
+        addMailMutation,
+        updateMailMutation,
+        deleteMailMutation,
+    } = useEngineerActions({
+        onMutate: () => setActionError(null),
+        onError: (error: unknown) => setActionError(getErrorMessage(error)),
+        onProcessUpdated: () => setEditProcessTarget(null),
+        onProcessAdded: () => {
             setIsAddProcessOpen(false);
             setNewProcessName('');
             setNewProcessMail('');
-        }
-    });
-
-    const deleteProcessMutation = useMutation({
-        mutationFn: (id: number) => engineerApi.deleteEngineer(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['engineers'] });
-            setDeleteProcessTarget(null);
-        }
-    });
-
-    // --- Mails Directory Mutations ---
-    const addMailMutation = useMutation({
-        mutationFn: ({ name, mail }: { name: string; mail: string }) => 
-            engineerApi.addMail(name, mail),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['mails'] });
+        },
+        onProcessDeleted: () => setDeleteProcessTarget(null),
+        onMailAdded: () => {
             setIsAddMailOpen(false);
             setNewMailName('');
             setNewMailAddress('');
-        }
-    });
-
-    const updateMailMutation = useMutation({
-        mutationFn: ({ id, name, mail }: { id: number; name: string; mail: string }) => 
-            engineerApi.updateMail(id, name, mail),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['mails'] });
-            setEditMailTarget(null);
-        }
-    });
-
-    const deleteMailMutation = useMutation({
-        mutationFn: (id: number) => engineerApi.deleteMail(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['mails'] });
-            setDeleteMailTarget(null);
-        }
+        },
+        onMailUpdated: () => setEditMailTarget(null),
+        onMailDeleted: () => setDeleteMailTarget(null),
     });
 
     // Suggestion pool from mails directory and existing engineers
@@ -123,8 +86,8 @@ export const EngineersView: React.FC = () => {
     const filteredEngineers = useMemo(() => {
         if (!searchTerm) return engineers;
         const s = searchTerm.toLowerCase();
-        return engineers.filter(e => 
-            e.process.toLowerCase().includes(s) || 
+        return engineers.filter(e =>
+            e.process.toLowerCase().includes(s) ||
             (e.mail && e.mail.toLowerCase().includes(s))
         );
     }, [engineers, searchTerm]);
@@ -132,25 +95,29 @@ export const EngineersView: React.FC = () => {
     const filteredMails = useMemo(() => {
         if (!searchTerm) return mails;
         const s = searchTerm.toLowerCase();
-        return mails.filter(m => 
-            m.name.toLowerCase().includes(s) || 
+        return mails.filter(m =>
+            m.name.toLowerCase().includes(s) ||
             m.mail.toLowerCase().includes(s)
         );
     }, [mails, searchTerm]);
 
     return (
         <div className="space-y-6 animate-page-enter">
+            <ErrorBanner
+                message={actionError ?? (engineersError ? getErrorMessage(engineersError) : mailsError ? getErrorMessage(mailsError) : null)}
+                onDismiss={actionError ? () => setActionError(null) : undefined}
+            />
             {/* Header info banner */}
-            <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-5 shadow-lg flex items-start justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start justify-between gap-4 flex-wrap hover-lift animate-slide-up stagger-1">
                 <div className="flex items-start gap-4">
-                    <div className="p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 shrink-0">
+                    <div className="p-2.5 rounded-xl bg-brand-accent/15 border border-brand-accent/30 text-brand-accent shrink-0">
                         <Mail size={24} />
                     </div>
                     <div>
-                        <h2 className="text-base font-bold text-white tracking-wide">
+                        <h2 className="text-base font-bold text-brand-text tracking-wide">
                             {t.engineersBannerTitle}
                         </h2>
-                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        <p className="text-xs text-brand-text-muted mt-1 leading-relaxed">
                             {t.engineersBannerSub}
                         </p>
                     </div>
@@ -162,7 +129,7 @@ export const EngineersView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsAddProcessOpen(true)}
-                                className="interactive-button inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-600/30 shrink-0 cursor-pointer"
+                                className="interactive-button inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text font-bold text-xs uppercase tracking-wider shadow-lg shadow-brand-accent/30 shrink-0 cursor-pointer"
                             >
                                 <Plus size={16} />
                                 <span>{t.btnAddProcessMail}</span>
@@ -171,7 +138,7 @@ export const EngineersView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsAddMailOpen(true)}
-                                className="interactive-button inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-600/30 shrink-0 cursor-pointer"
+                                className="interactive-button inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text font-bold text-xs uppercase tracking-wider shadow-lg shadow-brand-accent/30 shrink-0 cursor-pointer"
                             >
                                 <Plus size={16} />
                                 <span>{t.btnAddStandaloneMail}</span>
@@ -183,14 +150,14 @@ export const EngineersView: React.FC = () => {
 
             {/* Tab Navigation Pill Switcher */}
             <div className="flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-2">
-                <div className="bg-[#0d1322] border border-[#1e293b] p-1 rounded-2xl flex items-center gap-1 shadow-md">
+                <div className="bg-brand-surface border border-brand-border p-1 rounded-2xl flex items-center gap-1 shadow-md">
                     <button
                         type="button"
                         onClick={() => setActiveTab('processes')}
                         className={`interactive-pill flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                             activeTab === 'processes'
-                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                                : 'text-slate-400 hover:text-white'
+                                ? 'bg-brand-accent text-brand-text shadow-md shadow-brand-accent/20'
+                                : 'text-brand-text-muted hover:text-brand-text'
                         }`}
                     >
                         <Layers size={15} />
@@ -205,8 +172,8 @@ export const EngineersView: React.FC = () => {
                         onClick={() => setActiveTab('mails')}
                         className={`interactive-pill flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                             activeTab === 'mails'
-                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                                : 'text-slate-400 hover:text-white'
+                                ? 'bg-brand-accent text-brand-text shadow-md shadow-brand-accent/20'
+                                : 'text-brand-text-muted hover:text-brand-text'
                         }`}
                     >
                         <Contact size={15} />
@@ -224,81 +191,81 @@ export const EngineersView: React.FC = () => {
                         refetchMails();
                     }}
                     disabled={engFetching || mailsFetching}
-                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#111827] border border-[#1e293b] text-slate-300 hover:text-white hover:border-slate-500 text-xs font-bold uppercase tracking-wider cursor-pointer"
+                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider cursor-pointer"
                 >
-                    <RefreshCw size={14} className={engFetching || mailsFetching ? 'animate-spin text-indigo-400' : ''} />
+                    <RefreshCw size={14} className={engFetching || mailsFetching ? 'animate-spin text-brand-accent' : ''} />
                     <span>Odśwież</span>
                 </button>
             </div>
 
             {/* Filter / Search Bar */}
-            <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-3">
+            <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap animate-slide-up stagger-3">
                 <div className="relative flex-1 min-w-[260px]">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                     <input
                         type="text"
                         placeholder={t.searchProcessMailPlaceholder}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 bg-[#161f32] border border-[#1e293b] rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 font-mono transition-all duration-200"
+                        className="w-full pl-10 pr-4 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                     />
                 </div>
 
-                <div className="text-xs font-mono text-slate-400">
-                    Wyników: <strong className="text-white">{activeTab === 'processes' ? filteredEngineers.length : filteredMails.length}</strong>
+                <div className="text-xs font-mono text-brand-text-muted">
+                    Wyników: <strong className="text-brand-text">{activeTab === 'processes' ? filteredEngineers.length : filteredMails.length}</strong>
                 </div>
             </div>
 
             {/* TAB 1 CONTENT: Process Assignments (engineers table) */}
             {activeTab === 'processes' && (
-                <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
+                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-[#111827] text-slate-400 font-mono text-[11px] uppercase tracking-wider border-b border-[#1e293b]">
+                                <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                     <th className="py-3 px-4 font-semibold w-16">ID</th>
                                     <th className="py-3 px-4 font-semibold w-64">{t.thProcess}</th>
                                     <th className="py-3 px-4 font-semibold">{t.thEmailGroup}</th>
                                     {canEdit && <th className="py-3 px-4 font-semibold text-right pr-4 w-32">{t.thActions}</th>}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-[#1e293b]/60 text-slate-200 font-mono text-xs">
+                            <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-xs">
                                 {engLoading ? (
                                     <tr>
-                                        <td colSpan={4} className="py-12 text-center text-slate-400">
+                                        <td colSpan={4} className="py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
-                                                <RefreshCw className="animate-spin text-indigo-500" size={18} />
+                                                <RefreshCw className="animate-spin text-brand-accent" size={18} />
                                                 <span>Ładowanie listy procesów i maili...</span>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : filteredEngineers.length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} className="py-12 text-center text-slate-500 font-sans">
+                                        <td colSpan={4} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                             Brak rekordów spełniających kryteria.
                                         </td>
                                     </tr>
                                 ) : (
                                     filteredEngineers.map((eng, idx) => (
-                                        <tr 
-                                            key={eng.id} 
+                                        <tr
+                                            key={eng.id}
                                             style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
-                                            className="animate-row-enter hover:bg-[#161f32] transition-colors duration-150"
+                                            className="animate-row-enter hover:bg-brand-surface-high transition-colors duration-150"
                                         >
-                                            <td className="py-3 px-4 text-slate-500 font-bold">
+                                            <td className="py-3 px-4 text-brand-text-muted/70 font-bold">
                                                 #{eng.id}
                                             </td>
-                                            <td className="py-3 px-4 font-bold text-white tracking-wide">
+                                            <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
                                                 {eng.process}
                                             </td>
                                             <td className="py-3 px-4">
                                                 {eng.mail ? (
-                                                    <span className="inline-flex items-center gap-1.5 text-indigo-400 font-semibold font-mono">
-                                                        <Mail size={14} className="text-indigo-500 shrink-0" />
+                                                    <span className="inline-flex items-center gap-1.5 text-brand-accent font-semibold font-mono">
+                                                        <Mail size={14} className="text-brand-accent shrink-0" />
                                                         {eng.mail}
                                                     </span>
                                                 ) : (
-                                                    <span className="text-slate-500 italic">{t.noMailAssigned}</span>
+                                                    <span className="text-brand-text-muted/70 italic">{t.noMailAssigned}</span>
                                                 )}
                                             </td>
                                             {canEdit && (
@@ -310,7 +277,7 @@ export const EngineersView: React.FC = () => {
                                                                 setEditProcessTarget(eng);
                                                                 setEditProcessMailValue(eng.mail || '');
                                                             }}
-                                                            className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 text-xs font-semibold cursor-pointer"
+                                                            className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-accent/10 border border-brand-accent/30 text-brand-accent hover:bg-brand-accent/20 text-xs font-semibold cursor-pointer"
                                                         >
                                                             <Edit2 size={13} />
                                                             <span>{t.edit}</span>
@@ -337,49 +304,49 @@ export const EngineersView: React.FC = () => {
 
             {/* TAB 2 CONTENT: Standalone Mails Directory (mails table) */}
             {activeTab === 'mails' && (
-                <div className="bg-[#0d1322] border border-[#1e293b] rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
+                <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden animate-slide-up stagger-4">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="bg-[#111827] text-slate-400 font-mono text-[11px] uppercase tracking-wider border-b border-[#1e293b]">
+                                <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                     <th className="py-3 px-4 font-semibold w-16">ID</th>
                                     <th className="py-3 px-4 font-semibold w-64">{t.thContactName}</th>
                                     <th className="py-3 px-4 font-semibold">{t.thEmailAddress}</th>
                                     {canEdit && <th className="py-3 px-4 font-semibold text-right pr-4 w-32">{t.thActions}</th>}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-[#1e293b]/60 text-slate-200 font-mono text-xs">
+                            <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-xs">
                                 {mailsLoading ? (
                                     <tr>
-                                        <td colSpan={4} className="py-12 text-center text-slate-400">
+                                        <td colSpan={4} className="py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
-                                                <RefreshCw className="animate-spin text-indigo-500" size={18} />
+                                                <RefreshCw className="animate-spin text-brand-accent" size={18} />
                                                 <span>Ładowanie książki adresowej e-mail...</span>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : filteredMails.length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} className="py-12 text-center text-slate-500 font-sans">
+                                        <td colSpan={4} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                             Brak adresów e-mail w bazie. Kliknij &quot;Dodaj Nowy E-mail&quot;, aby dodać pierwszy rekord.
                                         </td>
                                     </tr>
                                 ) : (
                                     filteredMails.map((item, idx) => (
-                                        <tr 
-                                            key={item.id} 
+                                        <tr
+                                            key={item.id}
                                             style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
-                                            className="animate-row-enter hover:bg-[#161f32] transition-colors duration-150"
+                                            className="animate-row-enter hover:bg-brand-surface-high transition-colors duration-150"
                                         >
-                                            <td className="py-3 px-4 text-slate-500 font-bold">
+                                            <td className="py-3 px-4 text-brand-text-muted/70 font-bold">
                                                 #{item.id}
                                             </td>
-                                            <td className="py-3 px-4 font-bold text-white tracking-wide">
+                                            <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
                                                 {item.name || '—'}
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className="inline-flex items-center gap-1.5 text-indigo-400 font-semibold font-mono">
-                                                    <Mail size={14} className="text-indigo-500 shrink-0" />
+                                                <span className="inline-flex items-center gap-1.5 text-brand-accent font-semibold font-mono">
+                                                    <Mail size={14} className="text-brand-accent shrink-0" />
                                                     {item.mail}
                                                 </span>
                                             </td>
@@ -393,7 +360,7 @@ export const EngineersView: React.FC = () => {
                                                                 setEditMailName(item.name);
                                                                 setEditMailAddress(item.mail);
                                                             }}
-                                                            className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 text-xs font-semibold cursor-pointer"
+                                                            className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-accent/10 border border-brand-accent/30 text-brand-accent hover:bg-brand-accent/20 text-xs font-semibold cursor-pointer"
                                                         >
                                                             <Edit2 size={13} />
                                                             <span>{t.edit}</span>
@@ -430,7 +397,7 @@ export const EngineersView: React.FC = () => {
                 description="Zmień lub przypisz adres e-mail / grupę mailingową inżynierów dla tego procesu"
             >
                 {editProcessTarget && (
-                    <form 
+                    <form
                         onSubmit={(e) => {
                             e.preventDefault();
                             updateProcessMutation.mutate({ process: editProcessTarget.process, mail: editProcessMailValue.trim() });
@@ -438,7 +405,7 @@ export const EngineersView: React.FC = () => {
                         className="space-y-4"
                     >
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                                 {t.emailAddressLabel}
                             </label>
                             <input
@@ -448,7 +415,7 @@ export const EngineersView: React.FC = () => {
                                 value={editProcessMailValue}
                                 onChange={(e) => setEditProcessMailValue(e.target.value)}
                                 list="allSuggestions"
-                                className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                             />
                             <datalist id="allSuggestions">
                                 {emailSuggestions.map(m => (
@@ -461,14 +428,14 @@ export const EngineersView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setEditProcessTarget(null)}
-                                className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-xs font-semibold transition-colors cursor-pointer"
                             >
                                 {t.cancel}
                             </button>
                             <button
                                 type="submit"
                                 disabled={updateProcessMutation.isPending}
-                                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                             >
                                 {updateProcessMutation.isPending ? t.saving : t.saveChanges}
                             </button>
@@ -493,7 +460,7 @@ export const EngineersView: React.FC = () => {
                     className="space-y-4"
                 >
                     <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.processLabel} <span className="text-rose-400">*</span>
                         </label>
                         <input
@@ -502,12 +469,12 @@ export const EngineersView: React.FC = () => {
                             placeholder="np. SMT3 lub ICT_LINE_C..."
                             value={newProcessName}
                             onChange={(e) => setNewProcessName(e.target.value.toUpperCase())}
-                            className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                            className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                         />
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.emailAddressLabel}
                         </label>
                         <input
@@ -516,7 +483,7 @@ export const EngineersView: React.FC = () => {
                             value={newProcessMail}
                             onChange={(e) => setNewProcessMail(e.target.value)}
                             list="allSuggestions2"
-                            className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                            className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                         />
                         <datalist id="allSuggestions2">
                             {emailSuggestions.map(m => (
@@ -529,14 +496,14 @@ export const EngineersView: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setIsAddProcessOpen(false)}
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-xs font-semibold transition-colors cursor-pointer"
                         >
                             {t.cancel}
                         </button>
                         <button
                             type="submit"
                             disabled={addProcessMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                         >
                             {addProcessMutation.isPending ? t.saving : 'Dodaj Konfigurację'}
                         </button>
@@ -552,14 +519,14 @@ export const EngineersView: React.FC = () => {
                 description={`Czy na pewno chcesz usunąć powiązanie dla procesu: ${deleteProcessTarget?.process}?`}
             >
                 <div className="space-y-4">
-                    <p className="text-sm text-slate-300">
-                        Usunięcie rekordu z tabeli <span className="font-mono text-white">engineers</span> spowoduje brak adresu docelowego dla powiadomień tego procesu.
+                    <p className="text-sm text-brand-text">
+                        Usunięcie rekordu z tabeli <span className="font-mono text-brand-text">engineers</span> spowoduje brak adresu docelowego dla powiadomień tego procesu.
                     </p>
                     <div className="flex justify-end gap-3 pt-2">
                         <button
                             type="button"
                             onClick={() => setDeleteProcessTarget(null)}
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-sm font-semibold transition-colors cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-sm font-semibold transition-colors cursor-pointer"
                         >
                             {t.cancel}
                         </button>
@@ -567,7 +534,7 @@ export const EngineersView: React.FC = () => {
                             type="button"
                             onClick={() => deleteProcessTarget && deleteProcessMutation.mutate(deleteProcessTarget.id)}
                             disabled={deleteProcessMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-brand-text text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
                         >
                             {deleteProcessMutation.isPending ? t.deleting : t.delete}
                         </button>
@@ -590,15 +557,15 @@ export const EngineersView: React.FC = () => {
                     onSubmit={(e) => {
                         e.preventDefault();
                         if (!newMailAddress.trim()) return;
-                        addMailMutation.mutate({ 
-                            name: newMailName.trim() || newMailAddress.split('@')[0], 
-                            mail: newMailAddress.trim() 
+                        addMailMutation.mutate({
+                            name: newMailName.trim() || newMailAddress.split('@')[0],
+                            mail: newMailAddress.trim()
                         });
                     }}
                     className="space-y-4"
                 >
                     <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.contactNameLabel}
                         </label>
                         <input
@@ -606,12 +573,12 @@ export const EngineersView: React.FC = () => {
                             placeholder={t.contactNamePlaceholder}
                             value={newMailName}
                             onChange={(e) => setNewMailName(e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                            className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                         />
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.emailAddressLabel} <span className="text-rose-400">*</span>
                         </label>
                         <input
@@ -620,7 +587,7 @@ export const EngineersView: React.FC = () => {
                             placeholder={t.emailAddressPlaceholder}
                             value={newMailAddress}
                             onChange={(e) => setNewMailAddress(e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                            className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                         />
                     </div>
 
@@ -628,14 +595,14 @@ export const EngineersView: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setIsAddMailOpen(false)}
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-xs font-semibold transition-colors cursor-pointer"
                         >
                             {t.cancel}
                         </button>
                         <button
                             type="submit"
                             disabled={addMailMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                         >
                             {addMailMutation.isPending ? t.saving : 'Dodaj E-mail'}
                         </button>
@@ -664,7 +631,7 @@ export const EngineersView: React.FC = () => {
                         className="space-y-4"
                     >
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                                 {t.contactNameLabel}
                             </label>
                             <input
@@ -672,12 +639,12 @@ export const EngineersView: React.FC = () => {
                                 placeholder={t.contactNamePlaceholder}
                                 value={editMailName}
                                 onChange={(e) => setEditMailName(e.target.value)}
-                                className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                             />
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                                 {t.emailAddressLabel} <span className="text-rose-400">*</span>
                             </label>
                             <input
@@ -686,7 +653,7 @@ export const EngineersView: React.FC = () => {
                                 placeholder={t.emailAddressPlaceholder}
                                 value={editMailAddress}
                                 onChange={(e) => setEditMailAddress(e.target.value)}
-                                className="w-full px-4 py-2.5 bg-[#161f32] border border-[#1e293b] rounded-xl text-white font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                             />
                         </div>
 
@@ -694,14 +661,14 @@ export const EngineersView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setEditMailTarget(null)}
-                                className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-xs font-semibold transition-colors cursor-pointer"
                             >
                                 {t.cancel}
                             </button>
                             <button
                                 type="submit"
                                 disabled={updateMailMutation.isPending}
-                                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                                className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                             >
                                 {updateMailMutation.isPending ? t.saving : t.saveChanges}
                             </button>
@@ -718,14 +685,14 @@ export const EngineersView: React.FC = () => {
                 description={t.deleteMailConfirm}
             >
                 <div className="space-y-4">
-                    <p className="text-sm text-slate-300">
-                        Usunięcie adresu <strong className="text-white font-mono">{deleteMailTarget?.mail}</strong> ({deleteMailTarget?.name}) z tabeli <span className="font-mono text-indigo-400">masterSample.mails</span>.
+                    <p className="text-sm text-brand-text">
+                        Usunięcie adresu <strong className="text-brand-text font-mono">{deleteMailTarget?.mail}</strong> ({deleteMailTarget?.name}) z tabeli <span className="font-mono text-brand-accent">masterSample.mails</span>.
                     </p>
                     <div className="flex justify-end gap-3 pt-2">
                         <button
                             type="button"
                             onClick={() => setDeleteMailTarget(null)}
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-sm font-semibold transition-colors cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text text-sm font-semibold transition-colors cursor-pointer"
                         >
                             {t.cancel}
                         </button>
@@ -733,7 +700,7 @@ export const EngineersView: React.FC = () => {
                             type="button"
                             onClick={() => deleteMailTarget && deleteMailMutation.mutate(deleteMailTarget.id)}
                             disabled={deleteMailMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
+                            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-brand-text text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
                         >
                             {deleteMailMutation.isPending ? t.deleting : t.delete}
                         </button>
