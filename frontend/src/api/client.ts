@@ -21,9 +21,25 @@ export class ApiError extends Error {
 }
 
 let cachedSessionUser = '';
+let cachedSessionUserName = '';
+let cachedSessionGroups: string[] = [];
 
-export function setSessionUser(uid: string): void {
+export function setSessionUser(uid: string, name?: string, groups?: string[]): void {
     cachedSessionUser = uid.trim();
+    if (name !== undefined) {
+        cachedSessionUserName = name.trim();
+    }
+    if (groups !== undefined) {
+        cachedSessionGroups = Array.isArray(groups) ? [...groups] : [];
+    }
+}
+
+export function getSessionUser(): { uid: string; name: string; groups: string[] } {
+    return {
+        uid: cachedSessionUser,
+        name: cachedSessionUserName,
+        groups: cachedSessionGroups,
+    };
 }
 
 export async function apiRequest<T = unknown>(
@@ -43,6 +59,12 @@ export async function apiRequest<T = unknown>(
     const userHeaders: Record<string, string> = {};
     if (cachedSessionUser) {
         userHeaders['X-User'] = cachedSessionUser;
+    }
+    if (cachedSessionUserName) {
+        userHeaders['X-User-Name'] = cachedSessionUserName;
+    }
+    if (cachedSessionGroups.length > 0) {
+        userHeaders['X-User-Groups'] = cachedSessionGroups.join(',');
     }
 
     const response = await fetch(urlObj.toString(), {

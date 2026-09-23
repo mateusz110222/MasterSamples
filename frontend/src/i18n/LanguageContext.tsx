@@ -106,16 +106,14 @@ const translations = {
         displayedCount: 'Wyświetlono',
         ofTotal: 'z',
         registeredMasters: 'zarejestrowanych masterów',
+        page: 'Strona',
+        pageOf: 'z',
+        firstPage: 'Pierwsza strona',
+        prevPage: 'Poprzednia strona',
+        nextPage: 'Następna strona',
+        lastPage: 'Ostatnia strona',
         sectionRegistryTitle: 'Ewidencja i Obieg Masterów',
         btnRefreshMasters: 'Odśwież Mastery',
-
-        // Batch selection
-        selectedCount: 'Zaznaczone:',
-        btnResetCyclesOnly: 'Resetuj Tylko Cykle (0)',
-        btnResetErrorsOnly: 'Resetuj Tylko Błędy (0)',
-        btnResetAll: 'Resetuj Wszystko (Cykle + Błędy)',
-        btnBlockSelected: 'Zablokuj zaznaczone',
-        btnClearSelection: 'Wyczyść zaznaczenie',
 
         // Table headers
         thMasterId: 'Master ID',
@@ -126,12 +124,7 @@ const translations = {
         thGlobal: 'Globalny',
         thStatus: 'Status',
         thOperator: 'Utworzył / Operator',
-        thState: 'Stan',
         thActions: 'Akcje',
-
-        // Row states
-        stateActive: 'AKTYWNA',
-        stateBlocked: 'ZABLOKOWANY',
         loadingMasters: 'Ładowanie masterów produkcyjnych...',
         noMastersFound: 'Brak rekordów spełniających wybrane kryteria wyszukiwania.',
 
@@ -196,7 +189,6 @@ const translations = {
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
         validationSnEmpty: 'Numer seryjny (SN) jest wymagany.',
-        validationSnValid: 'Numer SN poprawny.',
         validationProcEmpty: 'Wybierz co najmniej jeden proces.',
         maxCounterLabel: 'Limit Użyć',
         maxCounterHint: 'Domyślnie: 1000 (zakres: 50–5000)',
@@ -333,16 +325,14 @@ const translations = {
         displayedCount: 'Showing',
         ofTotal: 'of',
         registeredMasters: 'registered masters',
+        page: 'Page',
+        pageOf: 'of',
+        firstPage: 'First page',
+        prevPage: 'Previous page',
+        nextPage: 'Next page',
+        lastPage: 'Last page',
         sectionRegistryTitle: 'Master Units Registry & Circulation',
         btnRefreshMasters: 'Refresh Masters',
-
-        // Batch selection
-        selectedCount: 'Selected:',
-        btnResetCyclesOnly: 'Reset Cycles Only (0)',
-        btnResetErrorsOnly: 'Reset Errors Only (0)',
-        btnResetAll: 'Reset All (Cycles + Errors)',
-        btnBlockSelected: 'Block Selected',
-        btnClearSelection: 'Clear Selection',
 
         // Table headers
         thMasterId: 'Master ID',
@@ -353,12 +343,7 @@ const translations = {
         thGlobal: 'Global',
         thStatus: 'Status',
         thOperator: 'Created by / Operator',
-        thState: 'State',
         thActions: 'Actions',
-
-        // Row states
-        stateActive: 'ACTIVE',
-        stateBlocked: 'BLOCKED',
         loadingMasters: 'Loading production golden samples...',
         noMastersFound: 'No records found matching current search criteria.',
 
@@ -423,7 +408,6 @@ const translations = {
         goodStatusLabel: 'GOOD',
         badStatusLabel: 'BAD',
         validationSnEmpty: 'Serial number (SN) is required.',
-        validationSnValid: 'Valid SN format.',
         validationProcEmpty: 'Select at least one process.',
         maxCounterLabel: 'Max Cycles',
         maxCounterHint: 'Default: 1000 (range: 50–5000)',

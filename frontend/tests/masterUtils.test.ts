@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMastersCsv, filterMasters, matchesProcess, sortMasters } from '../src/lib/masterUtils.ts';
+import { buildMastersCsv, filterMasters, getPaginationItems, matchesProcess, sortMasters } from '../src/lib/masterUtils.ts';
 import type { MasterUnit } from '../src/types/index.ts';
 
 const master = (overrides: Partial<MasterUnit> = {}): MasterUnit => ({
@@ -67,4 +67,12 @@ test('taskPreset filters correctly for action required, cycle and error limits, 
 
     const blocked = filterMasters(units, { searchTerm: '', process: '', status: '', activity: 'all', taskPreset: 'blocked' });
     assert.deepEqual(blocked.map(u => u.unit), ['BLOCKED_UNIT']);
+});
+
+test('getPaginationItems produces expected page numbers and ellipses', () => {
+    assert.deepEqual(getPaginationItems(1, 1), [1]);
+    assert.deepEqual(getPaginationItems(1, 5), [1, 2, 3, 4, 5]);
+    assert.deepEqual(getPaginationItems(2, 10), [1, 2, 3, 4, 5, '...', 10]);
+    assert.deepEqual(getPaginationItems(9, 10), [1, '...', 6, 7, 8, 9, 10]);
+    assert.deepEqual(getPaginationItems(5, 10), [1, '...', 4, 5, 6, '...', 10]);
 });
