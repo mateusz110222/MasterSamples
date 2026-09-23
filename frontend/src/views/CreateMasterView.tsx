@@ -6,9 +6,15 @@ import { masterApi, CreateMasterPayload, FisTarget } from '../api/masterApi';
 import type { MasterUnit } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
-import { SearchableSelect } from '../components/common/SearchableSelect';
+import Select, { StylesConfig, SingleValue } from 'react-select';
 import { getErrorMessage } from '../lib/errors';
 import { ErrorBanner } from '../components/common/ErrorBanner';
+
+export interface ProcessOption {
+    value: string;
+    label: string;
+    description?: string;
+}
 import {
     PlusCircle,
     ArrowLeft,
@@ -69,14 +75,158 @@ export const CreateMasterView: React.FC = () => {
         staleTime: 5 * 60 * 1000,
     });
 
-    // Options formatted for SearchableSelect
-    const processSelectOptions = useMemo(() => {
+    // Options formatted for react-select
+    const processSelectOptions: ProcessOption[] = useMemo(() => {
         return processTags.map(tag => ({
             value: tag.key,
             label: tag.key,
             description: tag.description !== tag.key ? tag.description : undefined
         }));
     }, [processTags]);
+
+    const reactSelectStyles: StylesConfig<ProcessOption, false> = useMemo(() => ({
+        control: (base, state) => ({
+            ...base,
+            backgroundColor: '#1f2937',
+            borderColor: state.isFocused ? '#6366f1' : '#374151',
+            boxShadow: state.isFocused ? '0 0 0 2px rgba(99, 102, 241, 0.25)' : 'none',
+            borderRadius: '0.75rem',
+            minHeight: '48px',
+            padding: '0 4px',
+            cursor: 'pointer',
+            transition: 'border-color 0.18s ease-out, box-shadow 0.18s ease-out',
+            '&:hover': {
+                borderColor: state.isFocused ? '#6366f1' : '#64748b'
+            }
+        }),
+        valueContainer: (base) => ({
+            ...base,
+            padding: '2px 8px'
+        }),
+        input: (base) => ({
+            ...base,
+            color: '#f9fafb',
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            fontSize: '0.875rem'
+        }),
+        singleValue: (base) => ({
+            ...base,
+            color: '#f9fafb',
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            fontSize: '0.875rem'
+        }),
+        placeholder: (base) => ({
+            ...base,
+            color: '#94a3b8',
+            fontFamily: '"Plus Jakarta Sans", ui-sans-serif, sans-serif',
+            fontSize: '0.875rem'
+        }),
+        menu: (base) => ({
+            ...base,
+            backgroundColor: '#1f2937',
+            border: '1px solid #374151',
+            borderRadius: '0.75rem',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+            zIndex: 50,
+            overflow: 'hidden',
+            marginTop: '6px'
+        }),
+        menuList: (base) => ({
+            ...base,
+            padding: '6px',
+            maxHeight: '260px'
+        }),
+        option: (base, state) => ({
+            ...base,
+            backgroundColor: state.isSelected
+                ? '#6366f1'
+                : state.isFocused
+                    ? 'rgba(99, 102, 241, 0.2)'
+                    : 'transparent',
+            color: state.isSelected ? '#ffffff' : '#f9fafb',
+            borderRadius: '0.5rem',
+            cursor: 'pointer',
+            padding: '8px 12px',
+            marginBottom: '2px',
+            fontSize: '0.875rem',
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            '&:active': {
+                backgroundColor: '#4f46e5'
+            }
+        }),
+        clearIndicator: (base) => ({
+            ...base,
+            color: '#94a3b8',
+            cursor: 'pointer',
+            padding: '6px',
+            '&:hover': {
+                color: '#f9fafb'
+            }
+        }),
+        dropdownIndicator: (base, state) => ({
+            ...base,
+            color: '#94a3b8',
+            cursor: 'pointer',
+            padding: '6px',
+            transition: 'transform 0.2s ease, color 0.15s ease',
+            transform: state.selectProps.menuIsOpen ? 'rotate(180deg)' : undefined,
+            '&:hover': {
+                color: '#f9fafb'
+            }
+        }),
+        indicatorSeparator: (base) => ({
+            ...base,
+            backgroundColor: '#374151',
+            margin: '8px 0'
+        }),
+        noOptionsMessage: (base) => ({
+            ...base,
+            color: '#94a3b8',
+            fontSize: '0.875rem',
+            padding: '16px'
+        })
+    }), []);
+
+    const filterOption = (
+        candidate: { label: string; value: string; data: ProcessOption },
+        input: string
+    ) => {
+        if (!input) return true;
+        const term = input.toLowerCase().trim();
+        return (
+            candidate.value.toLowerCase().includes(term) ||
+            candidate.label.toLowerCase().includes(term) ||
+            Boolean(candidate.data.description && candidate.data.description.toLowerCase().includes(term))
+        );
+    };
+
+    const formatOptionLabel = (
+        option: ProcessOption,
+        formatOptionLabelMeta: { context: 'menu' | 'value'; inputValue?: string }
+    ) => {
+        if (formatOptionLabelMeta.context === 'value') {
+            return (
+                <div className="flex items-baseline gap-2 truncate">
+                    <span className="font-bold font-mono text-sm text-brand-text">{option.value}</span>
+                    {option.description && (
+                        <span className="text-xs text-brand-text-muted font-sans truncate">
+                            — {option.description}
+                        </span>
+                    )}
+                </div>
+            );
+        }
+        return (
+            <div className="flex items-center justify-between gap-3 py-0.5">
+                <span className="font-bold font-mono text-sm">{option.value}</span>
+                {option.description && (
+                    <span className="text-xs text-brand-text-muted font-sans truncate text-right">
+                        {option.description}
+                    </span>
+                )}
+            </div>
+        );
+    };
 
     // Filtered processes for multiple selection
     const filteredMultiTags = useMemo(() => {
@@ -280,32 +430,27 @@ export const CreateMasterView: React.FC = () => {
                             onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
                             className="w-full px-4 py-3 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-base font-bold placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent transition-colors"
                         />
-                        <div className="h-4">
-                            {!serialNumber.trim() ? (
-                                <p className="text-[11px] text-brand-text-muted/70 font-sans leading-none">
-                                    Wymagany unikalny numer seryjny sztuki wzorcowej.
-                                </p>
-                            ) : (
-                                <p className="text-[11px] text-emerald-400/90 font-sans flex items-center gap-1 leading-none">
-                                    <Check size={12} />
-                                    <span>Gotowy do rejestracji w {selectedFis === 'FIS1' ? 'FIS 1' : 'FIS 2'} jako <strong className="font-mono">{serialNumber.trim()}</strong></span>
-                                </p>
-                            )}
-                        </div>
                     </div>
 
-                    {/* 2. Process Selection: Searchable Select for Single, or Filtered Pool for Multiple */}
+                    {/* 2. Process Selection: React Select for Single, or Filtered Pool for Multiple */}
                     {mode === 'single' ? (
                         <div className="space-y-1.5">
                             <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                                 {t.processLabel} <span className="text-rose-400">*</span>
                             </label>
-                            <SearchableSelect
+                            <Select<ProcessOption, false>
+                                instanceId="create-master-process-select"
+                                value={processSelectOptions.find(opt => opt.value === singleProcess) || null}
+                                onChange={(opt: SingleValue<ProcessOption>) => setSingleProcess(opt ? opt.value : '')}
                                 options={processSelectOptions}
-                                value={singleProcess}
-                                onChange={(val) => setSingleProcess(val)}
+                                styles={reactSelectStyles}
                                 placeholder={t.selectProcessPlaceholder}
-                                required
+                                isClearable
+                                isSearchable
+                                isLoading={tagsLoading}
+                                noOptionsMessage={() => 'Brak pasujących procesów'}
+                                filterOption={filterOption}
+                                formatOptionLabel={formatOptionLabel}
                             />
                         </div>
                     ) : (

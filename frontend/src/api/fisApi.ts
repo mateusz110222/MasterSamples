@@ -66,7 +66,7 @@ export const fisApi = {
             console.warn('[Auth] Could not reach GetUserName.php', e);
         }
 
-        setSessionUser(cleanUid);
+        setSessionUser(cleanUid, cleanUid ? undefined : 'Gość', []);
 
         if (!cleanUid) {
             return {
@@ -85,9 +85,11 @@ export const fisApi = {
             if (infoRes && infoRes.status && infoRes.data) {
                 const d = infoRes.data;
                 const groups: string[] = Array.isArray(d.groups) ? d.groups : [];
+                const fullName = d.name || cleanUid;
+                setSessionUser(cleanUid, fullName, groups);
                 return {
                     uid: d.userId || cleanUid,
-                    name: d.name || cleanUid,
+                    name: fullName,
                     email: d.email || '',
                     groups,
                     canEdit: Boolean(d.canEdit),
@@ -98,6 +100,7 @@ export const fisApi = {
             console.warn('[Auth] Could not fetch user details from database', e);
         }
 
+        setSessionUser(cleanUid, cleanUid, []);
         return {
             uid: cleanUid,
             name: cleanUid,

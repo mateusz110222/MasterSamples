@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ApiError, apiRequest } from '../src/api/client.ts';
+import { ApiError, apiRequest, setSessionUser } from '../src/api/client.ts';
 import { getCreateMasterUrl, masterApi } from '../src/api/masterApi.ts';
 
 const installBrowserMocks = (response: Response) => {
@@ -99,6 +99,50 @@ test('FIS operations target the selected host and include the FIS value', async 
             'http://plblofis2.global.borgwarner.net/custom/matz/php/MasterDashboard.php?job=DeleteMaster',
         );
         assert.deepEqual(JSON.parse(requestedBody), { unit: 'TEST-001', fis: 'FIS2' });
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.window = originalWindow;
+    }
+});
+
+test('session user, name, and groups are forwarded in headers and payload', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    globalThis.window = { location: { origin: 'http://dashboard.test' } } as Window & typeof globalThis;
+
+    let sentHeaders: Record<string, string> = {};
+    let sentBody: Record<string, unknown> = {};
+
+    globalThis.fetch = async (_input, init) => {
+        sentHeaders = (init?.headers ?? {}) as Record<string, string>;
+        sentBody = init?.body ? JSON.parse(String(init.body)) : {};
+        return new Response(JSON.stringify({ status: true, message: 'OK', data: {} }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+
+    try {
+        setSessionUser('matzielinski', 'Mateusz Zieliński', ['golden_samples', 'testeng']);
+
+        await masterApi.createMaster({
+            unit: 'TEST-002',
+            process: 'SMT',
+            status: 'GOOD',
+            maxCounter: 500,
+            maxErrors: 10,
+            fis: 'FIS2',
+        });
+
+        assert.equal(sentHeaders['X-User'], 'matzielinski');
+        assert.equal(sentHeaders['X-User-Name'], 'Mateusz Zieliński');
+        assert.equal(sentHeaders['X-User-Groups'], 'golden_samples,testeng');
+        assert.equal(sentBody.user, 'matzielinski');
+        assert.equal(sentBody.userName, 'Mateusz Zieliński');
+        assert.deepEqual(sentBody.userGroups, ['golden_samples', 'testeng']);
+
+        // Reset session
+        setSessionUser('', '', []);
     } finally {
         globalThis.fetch = originalFetch;
         globalThis.window = originalWindow;

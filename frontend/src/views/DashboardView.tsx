@@ -1,6 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getFisUnitHistoryUrl } from '../api/fisApi';
 import { MasterUnit, ResetType } from '../types';
 import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
@@ -26,7 +25,6 @@ import {
     History,
     Trash2,
     Ban,
-    Check,
     RefreshCw,
     X,
     AlertTriangle,
@@ -34,12 +32,16 @@ import {
     Gauge,
     User,
     AlertCircle,
+    ShieldAlert,
+    ShieldCheck,
 } from 'lucide-react';
+import { Pagination } from '../components/common/Pagination';
 
 export const DashboardView: React.FC = () => {
     const navigate = useNavigate();
     const { canEdit, user } = useAuth();
-    const { t } = useLanguage();
+    const { language, t } = useLanguage();
+    const isPl = language === 'PL';
 
     // Filters matching PalletX
     const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +50,32 @@ export const DashboardView: React.FC = () => {
     const [selectedActive, setSelectedActive] = useState('all');
     const [taskPreset, setTaskPreset] = useState<TaskPreset>('all');
     const [pageSize, setPageSize] = useState<number>(50);
+    const [currentPage, setCurrentPage] = useState<number>(1);
+
+    // Visible columns matching PalletX
+    const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('master_table_hidden_cols');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+
+    const toggleColumn = (col: string) => {
+        setHiddenColumns(prev => {
+            const next = prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col];
+            try {
+                localStorage.setItem('master_table_hidden_cols', JSON.stringify(next));
+            } catch {}
+            return next;
+        });
+    };
+
+    // Reset to first page when filtering or page size changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, pageSize]);
 
     // Interactive column sorting
     const [sortField, setSortField] = useState<MasterSortField>('unit');
@@ -132,9 +160,17 @@ export const DashboardView: React.FC = () => {
         return sortMasters(filteredMasters, sortField, sortDirection);
     }, [filteredMasters, sortField, sortDirection]);
 
+    // Pagination calculations
+    const totalItems = sortedMasters.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+    const startIndex = totalItems === 0 ? 0 : (safeCurrentPage - 1) * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, totalItems);
+
     const displayedMasters = useMemo(() => {
-        return sortedMasters.slice(0, pageSize);
-    }, [sortedMasters, pageSize]);
+        return sortedMasters.slice(startIndex, endIndex);
+    }, [sortedMasters, startIndex, endIndex]);
 
     // Sort handler
     const handleSort = (field: MasterSortField) => {
@@ -152,6 +188,7 @@ export const DashboardView: React.FC = () => {
         setSelectedStatus('');
         setSelectedActive('all');
         setTaskPreset('all');
+        setCurrentPage(1);
     };
 
     // CSV Export
@@ -160,31 +197,6 @@ export const DashboardView: React.FC = () => {
             buildMastersCsv(sortedMasters),
             `masters_export_${new Date().toISOString().slice(0, 10)}.csv`,
             'text/csv;charset=utf-8',
-        );
-    };
-
-    // Helper for sortable column header
-    const renderSortHeader = (field: MasterSortField, label: string, className = '') => {
-        const isActive = sortField === field;
-        return (
-            <th
-                onClick={() => handleSort(field)}
-                className={`py-3 px-3.5 font-semibold select-none cursor-pointer transition-colors hover:text-brand-text group ${className} ${
-                    isActive ? 'text-brand-accent font-bold bg-indigo-950/20' : 'text-brand-text-muted'
-                }`}
-                title={`Sortuj wg: ${label}`}
-            >
-                <div className={`inline-flex items-center gap-1.5 ${
-                    className.includes('text-center') ? 'justify-center w-full' : (className.includes('text-right') ? 'justify-end w-full' : 'justify-start')
-                }`}>
-                    <span>{label}</span>
-                    <span className={`text-xs font-mono font-bold transition-transform ${
-                        isActive ? 'text-brand-accent' : 'text-brand-text-muted/50 group-hover:text-brand-text-muted'
-                    }`}>
-                        {isActive ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}
-                    </span>
-                </div>
-            </th>
         );
     };
 
@@ -361,9 +373,11 @@ export const DashboardView: React.FC = () => {
                         onChange={(e) => setPageSize(Number(e.target.value))}
                         className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
                     >
+                        <option value={15}>15</option>
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
+                        <option value={250}>250</option>
                         <option value={500}>500</option>
                     </select>
                 </div>
@@ -430,179 +444,250 @@ export const DashboardView: React.FC = () => {
                 </div>
             </div>
 
-            {/* Section Header: Title & Refresh Button */}
-            <div className="flex items-center justify-between pt-1">
-                <h2 className="text-base sm:text-lg font-bold text-brand-text tracking-wide">{t.sectionRegistryTitle}</h2>
-                <button
-                    type="button"
-                    onClick={() => refetch()}
-                    disabled={isFetching}
-                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface border border-brand-border hover:border-brand-text-muted/60 text-brand-text hover:text-brand-text text-xs font-bold uppercase tracking-wider cursor-pointer"
-                >
-                    <RefreshCw size={14} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
-                    <span>{t.btnRefreshMasters}</span>
-                </button>
-            </div>
+            {/* Master Inventory Table matching PalletX */}
+            <div className="bg-brand-surface rounded-xl border border-brand-border overflow-hidden">
+                {/* Card Header: Title & Refresh Button */}
+                <div className="px-6 py-4 border-b border-brand-border flex flex-wrap gap-3 justify-between items-center bg-brand-surface/50">
+                    <h3 className="text-base font-bold text-brand-text">{t.sectionRegistryTitle}</h3>
+                    <button
+                        type="button"
+                        onClick={() => refetch()}
+                        disabled={isFetching}
+                        title={t.btnRefreshMasters}
+                        aria-label={t.btnRefreshMasters}
+                        className="border border-brand-border text-brand-text font-bold uppercase text-xs h-9 px-3 flex items-center justify-center gap-2 hover:bg-brand-surface-high hover:border-brand-accent/40 active:scale-[0.98] transition-all rounded disabled:opacity-50 cursor-pointer"
+                    >
+                        <RefreshCw size={14} className={isFetching ? "animate-spin text-brand-accent" : ""}/>
+                        <span>{t.btnRefreshMasters}</span>
+                    </button>
+                </div>
 
-            {/* Table with Interactive Sorting and no Checkboxes / Global column */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[13px] border-collapse table-auto">
-                        <thead>
-                            <tr className="bg-brand-surface text-brand-text-muted font-mono text-xs uppercase tracking-wider border-b border-brand-border">
-                                {renderSortHeader('unit', t.thMasterId, 'w-44')}
-                                {renderSortHeader('process', t.thProcess, 'w-40')}
-                                {renderSortHeader('FIS', t.thFis, 'w-28 text-center')}
-                                {renderSortHeader('currentCounter', t.thCycles, 'w-48')}
-                                {renderSortHeader('errorCounter', t.thErrors, 'w-44')}
-                                {renderSortHeader('status', t.thStatus, 'w-28 text-center')}
-                                {renderSortHeader('user', t.thOperator, 'w-44')}
-                                {renderSortHeader('isactive', t.thState, 'w-32 text-center')}
-                                {canEdit && <th className="py-3 px-3.5 w-44 font-semibold text-right pr-4">{t.thActions}</th>}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-[13px]">
-                            {isLoading ? (
-                                <tr>
-                                    <td colSpan={canEdit ? 9 : 8} className="py-12 text-center text-brand-text-muted">
-                                        <div className="inline-flex items-center gap-2">
-                                            <RefreshCw className="animate-spin text-brand-accent" size={18} />
-                                            <span>{t.loadingMasters}</span>
-                                        </div>
-                                    </td>
+                {/* Toolbar: Visible columns */}
+                <div className="border-b border-brand-border p-4">
+                    <details className="text-sm">
+                        <summary className="w-fit cursor-pointer rounded-lg border border-brand-border px-3 py-2 text-brand-text select-none hover:bg-brand-surface-high transition-colors">
+                            {isPl ? 'Widoczne kolumny' : 'Visible columns'}
+                        </summary>
+                        <div className="mt-3 flex flex-wrap gap-4 text-xs text-brand-text">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('process')} onChange={() => toggleColumn('process')} className="cursor-pointer" />
+                                {t.thProcess}
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('fis')} onChange={() => toggleColumn('fis')} className="cursor-pointer" />
+                                {t.thFis}
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('cycles')} onChange={() => toggleColumn('cycles')} className="cursor-pointer" />
+                                {t.thCycles}
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('errors')} onChange={() => toggleColumn('errors')} className="cursor-pointer" />
+                                {t.thErrors}
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('status')} onChange={() => toggleColumn('status')} className="cursor-pointer" />
+                                {t.thStatus}
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!hiddenColumns.includes('operator')} onChange={() => toggleColumn('operator')} className="cursor-pointer" />
+                                {t.thOperator}
+                            </label>
+                        </div>
+                    </details>
+                </div>
+
+                {/* Table Frame & Scroll Container */}
+                <div className="admin-table-frame relative">
+                    <div className="admin-table-scroll relative max-h-[65dvh] overflow-auto">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-brand-surface-high/30 border-b border-brand-border text-left select-none">
+                                    <th aria-sort={sortField === 'unit' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('unit')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thMasterId}
+                                            <span aria-hidden="true">{sortField === 'unit' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('process')} aria-sort={sortField === 'process' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('process')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thProcess}
+                                            <span aria-hidden="true">{sortField === 'process' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('fis')} aria-sort={sortField === 'FIS' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('FIS')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thFis}
+                                            <span aria-hidden="true">{sortField === 'FIS' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('cycles')} aria-sort={sortField === 'currentCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('currentCounter')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thCycles}
+                                            <span aria-hidden="true">{sortField === 'currentCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('errors')} aria-sort={sortField === 'errorCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('errorCounter')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thErrors}
+                                            <span aria-hidden="true">{sortField === 'errorCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('status')} aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('status')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thStatus}
+                                            <span aria-hidden="true">{sortField === 'status' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th hidden={hiddenColumns.includes('operator')} aria-sort={sortField === 'user' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('user')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thOperator}
+                                            <span aria-hidden="true">{sortField === 'user' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
+                                    <th className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted text-right">
+                                        {t.thActions}
+                                    </th>
                                 </tr>
-                            ) : displayedMasters.length === 0 ? (
-                                <tr>
-                                    <td colSpan={canEdit ? 9 : 8} className="py-12 text-center text-brand-text-muted/70 font-sans">
-                                        {t.noMastersFound}
-                                    </td>
-                                </tr>
-                            ) : (
-                                displayedMasters.map((m, idx) => {
-                                    const isDead = m.isactive === 2;
-                                    const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
-                                    const errorExceeded = m.errorMaxCounter > 0 && m.errorCounter >= m.errorMaxCounter;
-                                    const cycleWarn = !cycleExceeded && m.maxCounter > 0 && (m.currentCounter / m.maxCounter) >= 0.8;
-                                    const cyclePct = m.maxCounter > 0 ? Math.min(100, Math.round((m.currentCounter / m.maxCounter) * 100)) : 0;
-                                    const errorPct = m.errorMaxCounter > 0 ? Math.min(100, Math.round((m.errorCounter / m.errorMaxCounter) * 100)) : 0;
+                            </thead>
+                            <tbody className="divide-y divide-brand-border">
+                                {isLoading ? (
+                                    <tr>
+                                        <td colSpan={8 - hiddenColumns.length} className="px-6 py-12 text-center text-brand-text-muted">
+                                            <div className="inline-flex items-center gap-2">
+                                                <RefreshCw className="animate-spin text-brand-accent" size={18} />
+                                                <span>{t.loadingMasters}</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : displayedMasters.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={8 - hiddenColumns.length} className="px-6 py-12 text-center text-brand-text-muted">
+                                            {t.noMastersFound}
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    displayedMasters.map(m => {
+                                        const isDead = m.isactive === 2;
+                                        const maxC = m.maxCounter || 1000;
+                                        const currC = m.currentCounter || 0;
+                                        const usagePercent = Math.min(100, Math.round((currC / maxC) * 100));
+                                        const isLimitExceeded = maxC > 0 && currC >= maxC;
 
-                                    return (
-                                        <tr
-                                            key={m.id}
-                                            style={{ animationDelay: `${Math.min(idx * 20, 350)}ms` }}
-                                            className={`animate-row-enter transition-colors duration-150 border-b border-brand-border/50 group ${
-                                                isDead
-                                                    ? 'opacity-60 bg-slate-900/50 hover:bg-brand-surface-high'
-                                                    : 'hover:bg-brand-surface-high'
-                                            }`}
-                                        >
-                                            {/* Master ID (Indigo link to FIS 1 / FIS 2) */}
-                                            <td className="py-3 px-3.5 font-bold tracking-wide">
-                                                <a
-                                                    href={getFisUnitHistoryUrl(m.unit, m.FIS)}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-brand-accent hover:text-indigo-300 hover:underline inline-flex items-center gap-1.5 transition-transform hover:translate-x-0.5 duration-150"
-                                                    title={`Otwórz historię jednostki w FIS ${String(m.FIS || '').includes('2') ? '2' : '1'}`}
-                                                >
-                                                    {m.unit}
-                                                </a>
-                                            </td>
+                                        const maxE = m.errorMaxCounter || 50;
+                                        const currE = m.errorCounter || 0;
+                                        const errorPercent = Math.min(100, Math.round((currE / maxE) * 100));
+                                        const isErrorExceeded = maxE > 0 && currE >= maxE;
 
-                                            {/* Process */}
-                                            <td className="py-3 px-3.5 text-brand-text font-semibold break-all">
-                                                {m.process}
-                                            </td>
+                                        return (
+                                            <tr key={m.unit} className="hover:bg-brand-surface-high/30 transition-colors">
+                                                {/* Master ID */}
+                                                <td className="px-6 py-4 font-mono text-xs font-semibold">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setHistoryTarget(m)}
+                                                        title="Historia mastera"
+                                                        className="text-brand-accent hover:text-brand-text hover:underline underline-offset-2 cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-brand-accent rounded px-1 -mx-1"
+                                                    >
+                                                        {m.unit}
+                                                    </button>
+                                                </td>
 
-                                            {/* Parametry (FIS badge) */}
-                                            <td className="py-3 px-3.5 text-center">
-                                                <span className="bg-brand-surface-high border border-brand-border text-brand-text px-2 py-0.5 rounded text-xs font-mono inline-block">
-                                                    FIS: {m.FIS || '1'}
-                                                </span>
-                                            </td>
+                                                {/* Process */}
+                                                <td hidden={hiddenColumns.includes('process')} className="px-6 py-4 text-xs font-medium text-brand-text">
+                                                    {m.process}
+                                                </td>
 
-                                            {/* Zużycie (Cykle) with progress bar & exceeded warning */}
-                                            <td className="py-3 px-3.5">
-                                                <div className="space-y-1">
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className={cycleExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (cycleWarn ? 'text-amber-300 font-bold' : 'text-slate-200')}>
-                                                            {cycleExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0" />}
-                                                            <span>{m.currentCounter} <span className="text-brand-text-muted/60">/ {m.maxCounter}</span></span>
+                                                {/* FIS Parameters */}
+                                                <td hidden={hiddenColumns.includes('fis')} className="px-6 py-4">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        <span className="bg-brand-surface-high text-[0.5625rem] px-2 py-0.5 rounded border border-brand-border font-mono text-brand-text">
+                                                            FIS: {m.FIS ? (m.FIS.replace(/[^0-9]/g, '') || m.FIS) : '1'}
                                                         </span>
-                                                        <span className={cycleExceeded ? 'text-rose-400 font-bold' : (cycleWarn ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{cyclePct}%</span>
                                                     </div>
-                                                    <div className="h-2 w-full bg-brand-surface-high rounded-full overflow-hidden">
-                                                        <div
-                                                            className={`h-full rounded-full transition-all duration-700 ease-out ${
-                                                                cycleExceeded
-                                                                    ? 'bg-rose-500'
-                                                                    : (cycleWarn ? 'bg-amber-500' : 'bg-brand-accent')
-                                                            }`}
-                                                            style={{ width: `${cyclePct}%` }}
-                                                        />
+                                                </td>
+
+                                                {/* Cycle Usage with Progress Bar */}
+                                                <td hidden={hiddenColumns.includes('cycles')} className="px-6 py-4">
+                                                    <div className="w-32 flex flex-col gap-1">
+                                                        <div className="flex justify-between text-[0.625rem] font-mono">
+                                                            <span className={isLimitExceeded ? "text-red-400 font-bold" : "text-brand-text-muted"}>
+                                                                {currC}
+                                                            </span>
+                                                            <span className="text-brand-text-muted/60">/ {maxC}</span>
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-brand-bg rounded-full overflow-hidden border border-brand-border/40">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-500 ${
+                                                                    isLimitExceeded
+                                                                        ? 'bg-red-500'
+                                                                        : usagePercent > 85
+                                                                            ? 'bg-yellow-500'
+                                                                            : 'bg-brand-accent'
+                                                                }`}
+                                                                style={{ width: `${usagePercent}%` }}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </td>
+                                                </td>
 
-                                            {/* Licznik Błędów with progress bar & exceeded warning */}
-                                            <td className="py-3 px-3.5">
-                                                <div className="space-y-1">
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className={errorExceeded ? 'text-rose-400 font-bold flex items-center gap-1' : (m.errorCounter > 0 ? 'text-amber-300 font-bold' : 'text-slate-200')}>
-                                                            {errorExceeded && <AlertTriangle size={12} className="text-rose-400 shrink-0" />}
-                                                            <span>{m.errorCounter} <span className="text-brand-text-muted/60">/ {m.errorMaxCounter}</span></span>
-                                                        </span>
-                                                        <span className={errorExceeded ? 'text-rose-400 font-bold' : (m.errorCounter > 0 ? 'text-amber-400 font-bold' : 'text-brand-text-muted')}>{errorPct}%</span>
+                                                {/* Error Counter with Progress Bar */}
+                                                <td hidden={hiddenColumns.includes('errors')} className="px-6 py-4">
+                                                    <div className="w-28 flex flex-col gap-1">
+                                                        <div className="flex justify-between text-[0.625rem] font-mono">
+                                                            <span className={isErrorExceeded ? "text-red-400 font-bold" : "text-brand-text-muted"}>
+                                                                {currE}
+                                                            </span>
+                                                            <span className="text-brand-text-muted/60">/ {maxE}</span>
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-brand-bg rounded-full overflow-hidden border border-brand-border/40">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-500 ${
+                                                                    isErrorExceeded
+                                                                        ? 'bg-red-500'
+                                                                        : errorPercent > 85
+                                                                            ? 'bg-yellow-500'
+                                                                            : 'bg-brand-accent'
+                                                                }`}
+                                                                style={{ width: `${errorPercent}%` }}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                    <div className="h-2 w-full bg-brand-surface-high rounded-full overflow-hidden">
-                                                        <div
-                                                            className={`h-full rounded-full transition-all duration-700 ease-out ${
-                                                                errorExceeded
-                                                                    ? 'bg-rose-500'
-                                                                    : (m.errorCounter > 0 ? 'bg-amber-500' : 'bg-brand-border')
-                                                            }`}
-                                                            style={{ width: `${errorPct}%` }}
-                                                        />
+                                                </td>
+
+                                                {/* Quality / Status: GOOD / BAD */}
+                                                <td hidden={hiddenColumns.includes('status')} className="px-6 py-4">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider font-mono border ${
+                                                        m.status === 'GOOD'
+                                                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                                            : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                                    }`}>
+                                                        {m.status}
+                                                    </span>
+                                                </td>
+
+                                                {/* Created By / Operator */}
+                                                <td hidden={hiddenColumns.includes('operator')} className="px-6 py-4">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-medium text-brand-text">{m.user || '—'}</span>
                                                     </div>
-                                                </div>
-                                            </td>
+                                                </td>
 
-                                            {/* Status Badge */}
-                                            <td className="py-3 px-3.5 text-center">
-                                                {m.status === 'GOOD' ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
-                                                        GOOD
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
-                                                        BAD
-                                                    </span>
-                                                )}
-                                            </td>
+                                                {/* Actions */}
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex min-w-48 items-center justify-end gap-1">
+                                                        {/* Historia mastera */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setHistoryTarget(m)}
+                                                            title={t.actionHistory || 'Historia zmian'}
+                                                            aria-label={`Historia: ${m.unit}`}
+                                                            className="rounded-lg p-2 text-brand-text-muted hover:bg-brand-accent/10 hover:text-brand-accent transition-colors cursor-pointer"
+                                                        >
+                                                            <History size={16} />
+                                                        </button>
 
-                                            {/* Utworzył / Operator */}
-                                            <td className="py-3 px-3.5 text-brand-text font-sans truncate max-w-[160px]" title={m.user}>
-                                                {m.user || '—'}
-                                            </td>
-
-                                            {/* Stan: AKTYWNY / ZABLOKOWANY */}
-                                            <td className="py-3 px-3.5 text-center">
-                                                {isDead ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30 transition-transform hover:scale-105 duration-150">
-                                                        {t.stateBlocked}
-                                                    </span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition-transform hover:scale-105 duration-150">
-                                                        {t.stateActive}
-                                                    </span>
-                                                )}
-                                            </td>
-
-                                            {/* Akcje (if canEdit) - Safer layout with Reset highlighted */}
-                                            {canEdit && (
-                                                <td className="py-3 px-3.5 text-right pr-4">
-                                                    <div className="flex items-center justify-end gap-1.5">
-                                                        {/* Primary Safe Action: Reset Counters with distinct badge */}
+                                                        {/* Reset liczników */}
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -610,64 +695,70 @@ export const DashboardView: React.FC = () => {
                                                                 setResetTarget({ units: [m.unit], unitNames: m.unit });
                                                             }}
                                                             disabled={isDead}
-                                                            className={`interactive-button px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
-                                                                isDead
-                                                                    ? 'opacity-30 cursor-not-allowed bg-brand-surface-high border-brand-border text-brand-text-muted/70'
-                                                                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-400 hover:shadow-[0_0_12px_rgba(245,158,11,0.25)]'
-                                                            }`}
-                                                            title={t.actionReset}
+                                                            title={t.actionReset || 'Reset liczników'}
+                                                            aria-label={`Reset: ${m.unit}`}
+                                                            className="rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                         >
-                                                            <RotateCcw size={13} />
-                                                            <span>Reset</span>
+                                                            <RotateCcw size={16} />
                                                         </button>
 
-                                                        {/* History Button */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setHistoryTarget(m)}
-                                                            className="interactive-button p-1.5 rounded-lg bg-brand-surface-high border border-brand-border/80 text-brand-text-muted hover:text-indigo-300 hover:border-brand-accent/50 hover:bg-brand-accent/15 hover:shadow-xs cursor-pointer"
-                                                            title={t.actionHistory}
-                                                        >
-                                                            <History size={14} />
-                                                        </button>
+                                                        <span aria-hidden="true" className="mx-1 h-6 w-px bg-brand-border" />
 
-                                                        {/* Safe Divider separating dangerous actions */}
-                                                        <div className="h-4 w-px bg-brand-border/80 mx-0.5" />
+                                                        {isDead ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setBlockTarget({ units: [m.unit], block: false })}
+                                                                title={t.actionActivateConfirm || 'Odblokuj'}
+                                                                aria-label={`Odblokuj: ${m.unit}`}
+                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                                                            >
+                                                                <ShieldCheck size={16} />
+                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionActivateConfirm || 'ODBLOKUJ'}</span>
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setBlockTarget({ units: [m.unit], block: true })}
+                                                                title={t.actionBlockConfirm || 'Zablokuj'}
+                                                                aria-label={`Zablokuj: ${m.unit}`}
+                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer"
+                                                            >
+                                                                <ShieldAlert size={16} />
+                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionBlockConfirm || 'ZABLOKUJ'}</span>
+                                                            </button>
+                                                        )}
 
-                                                        {/* Block / Unblock Toggle */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setBlockTarget({ units: [m.unit], block: !isDead })}
-                                                            className={`interactive-button p-1.5 rounded-lg border cursor-pointer transition-all ${
-                                                                isDead
-                                                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 hover:border-emerald-400/60 hover:shadow-xs'
-                                                                    : 'bg-brand-surface-high border-brand-border/80 text-brand-text-muted hover:text-rose-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:shadow-xs'
-                                                            }`}
-                                                            title={isDead ? t.actionActivateConfirm : t.actionBlockConfirm}
-                                                        >
-                                                            {isDead ? <Check size={14} /> : <Ban size={14} />}
-                                                        </button>
-
-                                                        {/* Delete */}
                                                         <button
                                                             type="button"
                                                             onClick={() => setDeleteTarget(m)}
-                                                            className="interactive-button p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 hover:border-rose-400/60 hover:shadow-xs cursor-pointer"
-                                                            title={t.actionDeleteConfirm}
+                                                            title={t.actionDeleteConfirm || 'Usuń z ewidencji'}
+                                                            aria-label={`Usuń z ewidencji: ${m.unit}`}
+                                                            className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 hover:border-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer"
                                                         >
-                                                            <Trash2 size={14} />
+                                                            <Trash2 size={16} />
+                                                            <span className="text-[0.625rem] font-bold uppercase">{t.actionDeleteConfirm || 'USUŃ Z EWIDENCJI'}</span>
                                                         </button>
                                                     </div>
                                                 </td>
-                                            )}
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+
+                {/* Paginacja matching PalletX */}
+                <Pagination
+                    currentPage={safeCurrentPage}
+                    totalPages={totalPages}
+                    totalItems={totalItems}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                />
             </div>
+
             <DashboardModals
                 t={t}
                 resetTarget={resetTarget}

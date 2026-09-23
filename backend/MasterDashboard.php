@@ -1,4 +1,14 @@
 <?php
+/** @noinspection SqlNoDataSourceInspection */
+/** @noinspection SqlResolve */
+/** @noinspection DuplicatedCode */
+/** @noinspection PhpUnreachableStatementInspection */
+/** @noinspection PhpUnhandledExceptionInspection */
+/** @noinspection PhpDocMissingThrowsInspection */
+/** @noinspection AutoloadingIssuesInspection */
+/** @noinspection PhpIllegalPsrClassPathInspection */
+/** @noinspection PhpMultipleClassesDeclarationsInOneFile */
+/** @noinspection SpellCheckingInspection */
 declare(strict_types=1);
 
 /**
@@ -9,13 +19,14 @@ declare(strict_types=1);
 use BuildingBlocks\Archive;
 use BuildingBlocks\Lib;
 use BuildingBlocks\Unit;
+use JetBrains\PhpStorm\NoReturn;
 
 date_default_timezone_set('Europe/Warsaw');
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-User');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-User, X-User-Name, X-User-Groups, Accept, Origin');
 
 define('FILENAME', basename(__FILE__, '.php'));
 
@@ -34,14 +45,19 @@ const ALLOWED_GROUPS = [
     'golden_samples',
 ];
 
+#[NoReturn]
 function sendJsonResponse(bool $status, string $message, mixed $data = null, int $statusCode = 200): void
 {
     http_response_code($statusCode);
-    echo json_encode([
-        'status' => $status,
-        'message' => $message,
-        'data' => $data,
-    ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    try {
+        echo json_encode([
+            'status' => $status,
+            'message' => $message,
+            'data' => $data,
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    } catch (JsonException) {
+        echo '{"status":false,"message":"JSON encoding error"}';
+    }
     exit;
 }
 
@@ -55,7 +71,7 @@ final class ApiOperationException extends RuntimeException
         string $publicMessage,
         int $statusCode = 500,
         mixed $responseData = null,
-        ?Throwable $previous = null,
+        ?Throwable $previous = null
     ) {
         $this->publicMessage = $publicMessage;
         $this->statusCode = $statusCode;
@@ -82,9 +98,7 @@ try {
     }
     require_once $buildingBlocksPath;
 } catch (Throwable $error) {
-    if (class_exists(Lib::class)) {
-        Lib::ShowError(FILENAME, print_r($error, true));
-    }
+    Lib::ShowError(FILENAME, print_r($error, true));
     sendJsonResponse(false, 'Nie udało się załadować biblioteki FIS BuildingBlocks.', null, 500);
 }
 
@@ -124,21 +138,22 @@ function getLocalUserDbConnection(): mysqli
 
 function getRequestData(): array
 {
-    $raw = file_get_contents('php://input');
-    if (!empty($raw)) {
-        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        if (is_array($decoded)) {
-            return array_merge($_GET, $decoded);
-        }
+    static $input = null;
+    if ($input !== null) {
+        return $input;
     }
-    return array_merge($_GET, $_POST);
+
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+    $form = Lib::getForm($contentType, FILENAME);
+    $input = array_merge($_GET, is_array($form) ? $form : []);
+    return $input;
 }
 
 function cleanUsername(string $user): string
 {
     $user = trim($user);
     if (str_contains($user, '\\')) {
-        $user = substr($user, (int)strrpos($user, '\\') + 1);
+        $user = substr($user, strrpos($user, '\\') + 1);
     }
     return trim($user, " \t\n\r\0\x0B\"'");
 }
@@ -150,7 +165,7 @@ function normalizeFisValue(mixed $fis): string
 
 function getServerFis(): ?string
 {
-    $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+    $host = strtolower(($_SERVER['HTTP_HOST'] ?? ''));
     if (str_contains($host, 'plblofis2')) {
         return 'FIS2';
     }
@@ -181,7 +196,7 @@ function formatOperationError(
     string $unit,
     string $fis,
     Throwable $error,
-    ?string $state = null,
+    ?string $state = null
 ): string {
     $message = sprintf(
         "%s failed [stage=%s, unit='%s', fis=%s, exception=%s, code=%d]: %s",
@@ -190,8 +205,8 @@ function formatOperationError(
         $unit,
         $fis,
         get_class($error),
-        (int)$error->getCode(),
-        $error->getMessage(),
+        $error->getCode(),
+        $error->getMessage()
     );
 
     return $state !== null ? $message . ' | state: ' . $state : $message;
@@ -211,12 +226,9 @@ function getCurrentUser(array $input): string
     return 'SYSTEM';
 }
 
-/**
- * @throws JsonException
- */
 function getAuthenticatedUser(): string
 {
-    $remoteUser = cleanUsername((string)(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? '')));
+    $remoteUser = cleanUsername(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? ''));
     if ($remoteUser !== '') {
         return $remoteUser;
     }
@@ -228,7 +240,7 @@ function getAuthenticatedUser(): string
     $input = getRequestData();
     $inputUser = $input['user'] ?? $input['userId'] ?? '';
     if ($inputUser !== '') {
-        return cleanUsername((string)$inputUser);
+        return cleanUsername($inputUser);
     }
 
     return '';
@@ -238,16 +250,13 @@ function getUserGroups(string $userId): array
 {
     try {
         $groups = Lib::GetUserGroup($userId);
-        return is_array($groups) ? array_values(array_map('strval', $groups)) : [];
+        return array_values(array_map('strval', $groups));
     } catch (Throwable $error) {
         Lib::ShowError(FILENAME, print_r($error, true));
         return [];
     }
 }
 
-/**
- * @throws JsonException
- */
 function requireWriteAccess(): string
 {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -268,35 +277,52 @@ function requireWriteAccess(): string
 
 function getUserFullName(string $userId): string
 {
-    $userId = cleanUsername($userId);
-    if ($userId === '' || $userId === 'SYSTEM') {
-        return $userId;
+    $cleanId = cleanUsername($userId);
+    if ($cleanId === '' || $cleanId === 'SYSTEM') {
+        return $cleanId !== '' ? $cleanId : $userId;
     }
 
     static $cache = [];
-    if (isset($cache[$userId])) {
-        return $cache[$userId];
+    if (isset($cache[$cleanId])) {
+        return $cache[$cleanId];
     }
 
     try {
         $localDb = getLocalUserDbConnection();
-        $safeUser = $localDb->real_escape_string($userId);
-        $res = $localDb->query("SELECT name FROM tbl_users WHERE userId = '$safeUser' LIMIT 1");
-        if ($res && ($row = $res->fetch_assoc())) {
-            if (!empty($row['name'])) {
-                $name = trim((string)$row['name']);
-                $localDb->close();
-                $cache[$userId] = $name;
-                return $name;
-            }
+        $safeUser = $localDb->real_escape_string($cleanId);
+        $res = $localDb->query("SELECT name FROM tbl_users WHERE userId = '$safeUser' OR name = '$safeUser' LIMIT 1");
+        if ($res && ($row = $res->fetch_assoc()) && !empty($row['name'])) {
+            $name = trim((string)$row['name']);
+            $localDb->close();
+            $cache[$cleanId] = $name;
+            return $name;
         }
         $localDb->close();
     } catch (Throwable $e) {
         Lib::ShowError(FILENAME, print_r($e, true));
     }
 
-    $cache[$userId] = $userId;
-    return $userId;
+    // Only if resolving the currently authenticated session user, fallback to client-supplied session name
+    $authUser = getAuthenticatedUser();
+    if ($authUser !== '' && strcasecmp($cleanId, $authUser) === 0) {
+        if (!empty($_SERVER['HTTP_X_USER_NAME'])) {
+            $headerName = trim($_SERVER['HTTP_X_USER_NAME']);
+            if ($headerName !== '') {
+                $cache[$cleanId] = $headerName;
+                return $headerName;
+            }
+        }
+
+        $input = getRequestData();
+        $passedName = trim((string)($input['userName'] ?? $input['userFullName'] ?? $input['operatorName'] ?? ''));
+        if ($passedName !== '') {
+            $cache[$cleanId] = $passedName;
+            return $passedName;
+        }
+    }
+
+    $cache[$cleanId] = $cleanId;
+    return $cleanId;
 }
 
 $input = getRequestData();
@@ -343,6 +369,7 @@ try {
             }
 
             sendJsonResponse(true, 'Pobrano dane użytkownika', $userInfo);
+            break;
         }
 
         case 'GetMasters': {
@@ -441,7 +468,7 @@ try {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
             $operatorName = getUserFullName($user);
-            $resetType = strtolower(trim((string)($input['resetType'] ?? 'all')));
+            $resetType = strtolower(trim($input['resetType'] ?? 'all'));
 
             if (empty($rawUnits)) {
                 sendJsonResponse(false, 'Brak jednostek do zresetowania', null, 400);
@@ -457,7 +484,13 @@ try {
                 $mysqli->begin_transaction();
                 try {
                     $resetCount = 0;
-                    $operationName = $resetType === 'cycles' ? 'ResetCycles' : ($resetType === 'errors' ? 'ResetErrors' : 'Reset');
+                    if ($resetType === 'cycles') {
+                        $operationName = 'ResetCycles';
+                    } elseif ($resetType === 'errors') {
+                        $operationName = 'ResetErrors';
+                    } else {
+                        $operationName = 'Reset';
+                    }
 
                     foreach ($unitList as $unit) {
                         $stmtCheck = $mysqli->prepare("SELECT isactive FROM masterUnits WHERE unit = ? LIMIT 1");
@@ -494,8 +527,13 @@ try {
                     }
 
                     $mysqli->commit();
-                    $msg = $resetType === 'cycles' ? "Wyzerowano liczniki cykli ($resetCount sztuk)" :
-                           ($resetType === 'errors' ? "Wyzerowano liczniki błędów ($resetCount sztuk)" : "Wyzerowano wszystkie liczniki ($resetCount sztuk)");
+                    if ($resetType === 'cycles') {
+                        $msg = "Wyzerowano liczniki cykli ($resetCount sztuk)";
+                    } elseif ($resetType === 'errors') {
+                        $msg = "Wyzerowano liczniki błędów ($resetCount sztuk)";
+                    } else {
+                        $msg = "Wyzerowano wszystkie liczniki ($resetCount sztuk)";
+                    }
 
                     sendJsonResponse(true, $msg, ['count' => $resetCount, 'resetType' => $resetType]);
                 } catch (Throwable $err) {
@@ -505,6 +543,7 @@ try {
             } finally {
                 $mysqli->close();
             }
+            break;
         }
 
         case 'BlockMaster': {
@@ -546,6 +585,7 @@ try {
             } finally {
                 $mysqli->close();
             }
+            break;
         }
 
         case 'ActivateMaster': {
@@ -587,6 +627,7 @@ try {
             } finally {
                 $mysqli->close();
             }
+            break;
         }
 
         case 'DeleteMaster': {
@@ -610,7 +651,7 @@ try {
                 }
 
                 $storedFis = normalizeFisValue($masterRow['FIS'] ?? 'FIS1');
-                $requestedFisRaw = strtoupper(trim((string)($input['fis'] ?? '')));
+                $requestedFisRaw = strtoupper(trim($input['fis'] ?? ''));
                 if ($requestedFisRaw !== '' && !in_array($requestedFisRaw, ['FIS1', 'FIS2'], true)) {
                     sendJsonResponse(false, 'Nieprawidłowy serwer FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
                 }
@@ -710,9 +751,9 @@ try {
 
         case 'CreateMaster': {
             $user = requireWriteAccess();
-            $unit = strtoupper(trim((string)($input['unit'] ?? $input['serialNumber'] ?? '')));
-            $processList = trim((string)($input['process'] ?? $input['processName'] ?? ''));
-            $status = strtoupper(trim((string)($input['status'] ?? 'GOOD')));
+            $unit = strtoupper(trim($input['unit'] ?? $input['serialNumber'] ?? ''));
+            $processList = trim($input['process'] ?? $input['processName'] ?? '');
+            $status = strtoupper(trim($input['status'] ?? 'GOOD'));
             $maxCounter = (int)($input['maxCounter'] ?? 1000);
             $errorMaxCounter = (int)($input['maxErrors'] ?? $input['errorMaxCounter'] ?? 50);
             $forceUpdate = !empty($input['forceUpdate']);
@@ -721,11 +762,10 @@ try {
                 sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
             }
 
-            $fisRaw = strtoupper(trim((string)($input['fis'] ?? 'FIS1')));
-            if (!in_array($fisRaw, ['FIS1', 'FIS2'], true)) {
+            $fisValue = strtoupper(trim($input['fis'] ?? 'FIS1'));
+            if (!in_array($fisValue, ['FIS1', 'FIS2'], true)) {
                 sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
-            $fisValue = $fisRaw;
 
             $serverFis = getServerFis();
             if ($serverFis !== null && $serverFis !== $fisValue) {
@@ -811,17 +851,13 @@ try {
                 }
 
                 $creatorName = getUserFullName($user);
-                $dcmods = "MS_HISTORY|{$unit}_MASTER|MS_PROCESS|{$processClean}|MS_STATUS|{$status}|OPERATOR|{$creatorName}";
+                $dcmods = 'MS_HISTORY|' . $unit . '_MASTER|MS_PROCESS|' . $processClean . '|MS_STATUS|' . $status . '|OPERATOR|' . $creatorName;
                 try {
                     Unit::DataEntry(
                         $unit,
                         "CREATEUNIT",
                         "WEB",
                         $dcmods,
-                        "ata",
-                        "",
-                        "",
-                        "",
                         "GOLD",
                         "",
                         "",
@@ -915,6 +951,7 @@ try {
             } finally {
                 $mysqli->close();
             }
+            break;
         }
 
         /* =========================================================================
@@ -1040,35 +1077,33 @@ try {
          * ========================================================================= */
         case 'GetBlockedMachines': {
             $items = [];
-            if (is_dir($blockedMachinesDir)) {
-                $files = scandir($blockedMachinesDir);
-                if ($files !== false) {
-                    foreach ($files as $file) {
-                        if ($file === '.' || $file === '..' || str_contains($file, '10.237.')) {
-                            continue;
-                        }
-                        $fullPath = $blockedMachinesDir . $file;
-                        if (!is_file($fullPath)) {
-                            continue;
-                        }
-
-                        $lastUnderscore = strrpos($file, '_');
-                        $machine = $lastUnderscore !== false ? substr($file, 0, $lastUnderscore) : $file;
-                        $prefix = $lastUnderscore !== false ? substr($file, $lastUnderscore + 1) : 'MASTER';
-                        $mtime = filemtime($fullPath);
-
-                        $items[] = [
-                            'id' => $file,
-                            'filename' => $file,
-                            'machine' => $machine ?: 'UNKNOWN',
-                            'prefix' => $prefix ?: 'MASTER',
-                            'blockedAt' => $mtime ? date('Y-m-d H:i:s', $mtime) : null,
-                            'size' => filesize($fullPath) ?: 0,
-                        ];
+            if (is_dir($blockedMachinesDir) && ($files = scandir($blockedMachinesDir)) !== false) {
+                foreach ($files as $file) {
+                    if ($file === '.' || $file === '..' || str_contains($file, '10.237.')) {
+                        continue;
                     }
+                    $fullPath = $blockedMachinesDir . $file;
+                    if (!is_file($fullPath)) {
+                        continue;
+                    }
+
+                    $lastUnderscore = strrpos($file, '_');
+                    $machine = $lastUnderscore !== false ? substr($file, 0, $lastUnderscore) : $file;
+                    $prefix = $lastUnderscore !== false ? substr($file, $lastUnderscore + 1) : 'MASTER';
+                    $mtime = filemtime($fullPath);
+
+                    $items[] = [
+                        'id' => $file,
+                        'filename' => $file,
+                        'machine' => $machine ?: 'UNKNOWN',
+                        'prefix' => $prefix ?: 'MASTER',
+                        'blockedAt' => $mtime ? date('Y-m-d H:i:s', $mtime) : null,
+                        'size' => filesize($fullPath) ?: 0,
+                    ];
                 }
             }
             sendJsonResponse(true, 'Pobrano zablokowane maszyny', $items);
+            break;
         }
 
         case 'DeleteBlockedMachine': {
@@ -1085,9 +1120,9 @@ try {
 
             if (@unlink($targetPath)) {
                 sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta!");
-            } else {
-                sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
             }
+            sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
+            break;
         }
 
         /* =========================================================================
@@ -1096,7 +1131,7 @@ try {
         case 'GetEngineers': {
             $mysqli = getDbConnection();
             try {
-                $res = $mysqli->query("SELECT id, process, mail FROM engineers ORDER BY process ASC");
+                $res = $mysqli->query("SELECT id, process, mail FROM engineers ORDER BY process");
                 $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
                 sendJsonResponse(true, 'Lista inżynierów załadowana', $rows);
             } finally {
@@ -1188,7 +1223,7 @@ try {
         case 'GetMails': {
             $mysqli = getDbConnection();
             try {
-                $res = $mysqli->query("SELECT id, name, mail FROM mails ORDER BY name ASC");
+                $res = $mysqli->query("SELECT id, name, mail FROM mails ORDER BY name");
                 $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
                 sendJsonResponse(true, 'Książka adresowa maili załadowana', $rows);
             } finally {

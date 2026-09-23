@@ -1,4 +1,4 @@
-import { apiRequest, API_BASE } from './client.ts';
+import { apiRequest, API_BASE, getSessionUser } from './client.ts';
 import type { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types/index.ts';
 
 export type FisTarget = 'FIS1' | 'FIS2';
@@ -29,6 +29,9 @@ export interface CreateMasterPayload {
     maxErrors: number;
     fis: FisTarget;
     forceUpdate?: boolean;
+    user?: string;
+    userName?: string;
+    userGroups?: string[];
 }
 
 export interface CreateMasterResult {
@@ -51,9 +54,16 @@ export const masterApi = {
     },
 
     createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<CreateMasterResult>> => {
+        const session = getSessionUser();
+        const bodyPayload = {
+            ...payload,
+            user: payload.user || session.uid || undefined,
+            userName: payload.userName || session.name || undefined,
+            userGroups: payload.userGroups || (session.groups.length > 0 ? session.groups : undefined),
+        };
         return apiRequest(getCreateMasterUrl(payload.fis), { job: 'CreateMaster' }, {
             method: 'POST',
-            body: JSON.stringify(payload)
+            body: JSON.stringify(bodyPayload)
         });
     },
 
@@ -81,9 +91,16 @@ export const masterApi = {
     },
 
     deleteMaster: async (unit: string, fis: FisTarget): Promise<ApiResponse<{ affected_rows: number; fis_deleted: boolean }>> => {
+        const session = getSessionUser();
         return apiRequest(getCreateMasterUrl(fis), { job: 'DeleteMaster' }, {
             method: 'POST',
-            body: JSON.stringify({ unit, fis }),
+            body: JSON.stringify({
+                unit,
+                fis,
+                user: session.uid || undefined,
+                userName: session.name || undefined,
+                userGroups: session.groups.length > 0 ? session.groups : undefined,
+            }),
         });
     },
 
