@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { masterApi } from '../api/masterApi';
 import { getFisUnitHistoryUrl } from '../api/fisApi';
@@ -7,8 +7,9 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 import { getErrorMessage } from '../lib/errors';
 import { useLanguage } from '../i18n/useLanguage';
+import { Pagination } from '../components/common/Pagination';
+import { useAdaptiveTableColumns } from '../hooks/useAdaptiveTableColumns';
 import {
-    History,
     Search,
     RefreshCw,
     RotateCcw,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const HistoryView: React.FC = () => {
-    const { t } = useLanguage();
+    const { language, t } = useLanguage();
     const [unitFilter, setUnitFilter] = useState('');
     const [operationFilter, setOperationFilter] = useState('');
     const [userFilter, setUserFilter] = useState('');
@@ -26,13 +27,28 @@ export const HistoryView: React.FC = () => {
     const [statusFilter, setStatusFilter] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [pageSize, setPageSize] = useState(50);
 
     const debouncedUnitFilter = useDebouncedValue(unitFilter);
     const debouncedUserFilter = useDebouncedValue(userFilter);
     const debouncedProcessFilter = useDebouncedValue(processFilter);
 
-    const { data: historyRecords = [], isLoading, isFetching, refetch, error } = useQuery({
-        queryKey: ['history', debouncedUnitFilter, operationFilter, debouncedUserFilter, debouncedProcessFilter, statusFilter, dateFrom, dateTo],
+    const filtersKey = JSON.stringify([debouncedUnitFilter, operationFilter, debouncedUserFilter, debouncedProcessFilter, statusFilter, dateFrom, dateTo, pageSize]);
+    const [pagination, setPagination] = useState({ filtersKey, page: 1 });
+    const page = pagination.filtersKey === filtersKey ? pagination.page : 1;
+    const tableScrollRef = useRef<HTMLTableSectionElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
+    const paginationRef = useRef<HTMLDivElement>(null);
+    const pendingPageRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        tableScrollRef.current?.scrollTo({ top: 0 });
+    }, [filtersKey]);
+
+    const { data: historyPage, isLoading, isFetching, refetch, error } = useQuery({
+        queryKey: ['history', filtersKey, page],
+        placeholderData: (previousData, previousQuery) =>
+            previousQuery?.queryKey[1] === filtersKey ? previousData : undefined,
         queryFn: () => masterApi.getHistory({
             unit: debouncedUnitFilter,
             operation: operationFilter,
@@ -41,9 +57,27 @@ export const HistoryView: React.FC = () => {
             status: statusFilter,
             dateFrom,
             dateTo,
-            limit: 250,
+            limit: Math.min(pageSize + 1, 500),
+            offset: (page - 1) * pageSize,
         }),
     });
+
+    const historyRecords = historyPage?.records ?? [];
+    const visibleRecords = historyRecords.slice(0, pageSize);
+    const totalItems = historyPage?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    useAdaptiveTableColumns(tableRef, historyRecords, 9, 3, language);
+    useLayoutEffect(() => {
+        if (!isFetching && pendingPageRef.current === page) {
+            paginationRef.current?.scrollIntoView({ block: 'nearest' });
+            pendingPageRef.current = null;
+        }
+    }, [page, isFetching, historyPage]);
+    const handlePageChange = (nextPage: number) => {
+        pendingPageRef.current = nextPage;
+        setPagination({ filtersKey, page: nextPage });
+        tableScrollRef.current?.scrollTo({ top: 0 });
+    };
 
     const getOperationBadgeVariant = (op: string): BadgeVariant => {
         switch (op.toLowerCase()) {
@@ -103,32 +137,6 @@ export const HistoryView: React.FC = () => {
     return (
         <div className="space-y-6">
             <ErrorBanner message={error ? getErrorMessage(error, 'Nie udało się pobrać historii.') : null} />
-
-            {/* Header info banner */}
-            <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-center justify-between gap-4 flex-wrap hover-lift">
-                <div className="flex items-center gap-4">
-                    <div className="p-2.5 rounded-xl bg-brand-accent/15 border border-brand-accent/30 text-brand-accent shrink-0">
-                        <History size={24} />
-                    </div>
-                    <div>
-                        <h2 className="text-base font-bold text-brand-text tracking-wide">
-                            {t.headerHistoryTitle}
-                        </h2>
-                        <p className="text-xs text-brand-text-muted mt-1 leading-relaxed">
-                            {t.headerHistorySub}
-                        </p>
-                    </div>
-                </div>
-
-                <button
-                    onClick={() => refetch()}
-                    disabled={isFetching}
-                    className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider cursor-pointer shrink-0"
-                >
-                    <RefreshCw size={15} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
-                    <span>Odśwież</span>
-                </button>
-            </div>
 
             {/* Filter Bar with Date Range, Status & Process */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md space-y-3">
@@ -275,6 +283,24 @@ export const HistoryView: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Rows per page */}
+                    <div className="space-y-1">
+                        <label htmlFor="history-page-size" className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
+                            {t.rowsPerPage}
+                        </label>
+                        <select
+                            id="history-page-size"
+                            value={pageSize}
+                            onChange={(event) => {
+                                setPageSize(Number(event.target.value));
+                                setPagination({ filtersKey: '', page: 1 });
+                            }}
+                            className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
+                        >
+                            {[15, 25, 50, 100, 250, 500].map(size => <option key={size} value={size}>{size}</option>)}
+                        </select>
+                    </div>
+
                     {/* Clear Filters Button */}
                     <button
                         type="button"
@@ -290,11 +316,20 @@ export const HistoryView: React.FC = () => {
                         <RotateCcw size={13} />
                         <span>Wyczyść</span>
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => refetch()}
+                        disabled={isFetching}
+                        className="interactive-button h-9 px-3.5 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                        <RefreshCw size={13} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
+                        <span>Odśwież</span>
+                    </button>
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-brand-text-muted font-mono pt-1 border-t border-brand-border/60">
                     <span>
-                        Wpisów w audycie: <strong className="text-brand-text">{historyRecords.length}</strong>
+                        {error ? 'Nie udało się ustalić liczby wpisów' : isLoading ? 'Ładowanie wpisów…' : `Wpisów w audycie: ${totalItems}`}
                     </span>
                     {hasActiveFilters && (
                         <span className="text-brand-accent font-medium">Aktywne filtry wyszukiwania</span>
@@ -305,7 +340,7 @@ export const HistoryView: React.FC = () => {
             {/* History Table */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[13px] border-collapse">
+                    <table ref={tableRef} className="split-scroll-table text-left text-[13px] border-collapse">
                         <thead>
                             <tr className="bg-brand-surface text-brand-text-muted font-mono text-xs uppercase tracking-wider border-b border-brand-border">
                                 <th className="py-3 px-4 font-semibold">Data i Czas</th>
@@ -319,7 +354,7 @@ export const HistoryView: React.FC = () => {
                                 <th className="py-3 px-4 font-semibold">Użytkownik</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-brand-border/50 text-brand-text font-mono text-[13px]">
+                        <tbody ref={tableScrollRef} className="divide-y divide-brand-border/50 text-brand-text font-mono text-[13px]">
                             {isLoading ? (
                                 <tr>
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted">
@@ -329,14 +364,20 @@ export const HistoryView: React.FC = () => {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : historyRecords.length === 0 ? (
+                            ) : error ? (
+                                <tr>
+                                    <td colSpan={9} className="py-12 text-center text-brand-text-muted font-sans">
+                                        Nie udało się pobrać historii. Spróbuj odświeżyć dane.
+                                    </td>
+                                </tr>
+                            ) : visibleRecords.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                         Brak zarejestrowanych zdarzeń spełniających wybrane kryteria.
                                     </td>
                                 </tr>
                             ) : (
-                                historyRecords.map((rec, idx) => (
+                                visibleRecords.map((rec, idx) => (
                                     <tr
                                         key={rec.id}
                                         style={{ animationDelay: `${Math.min(idx * 15, 300)}ms` }}
@@ -350,11 +391,11 @@ export const HistoryView: React.FC = () => {
                                                 href={getFisUnitHistoryUrl(rec.unit)}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="text-brand-accent hover:text-indigo-300 hover:underline inline-flex items-center gap-1 transition-transform hover:translate-x-0.5"
+                                                className="block w-max whitespace-nowrap text-brand-accent hover:text-indigo-300 hover:underline"
                                                 title="Otwórz historię jednostki w FIS"
                                             >
                                                 <span>{rec.unit}</span>
-                                                <ExternalLink size={12} className="opacity-70" />
+                                                <ExternalLink size={12} className="ml-1 inline-block align-baseline opacity-70" />
                                             </a>
                                         </td>
                                         <td className="py-3 px-4">
@@ -363,17 +404,19 @@ export const HistoryView: React.FC = () => {
                                             </Badge>
                                         </td>
                                         <td className="py-3 px-4 text-brand-text font-semibold">
-                                            {rec.process}
+                                            <span className="block w-max max-w-[17rem] [overflow-wrap:anywhere]">{rec.process}</span>
                                         </td>
                                         <td className="py-3 px-4 text-center">
                                             {rec.status === 'GOOD' ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                                                     GOOD
                                                 </span>
-                                            ) : (
+                                            ) : rec.status === 'BAD' ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-rose-500/15 text-rose-400 border border-rose-500/30">
                                                     BAD
                                                 </span>
+                                            ) : (
+                                                <span className="text-brand-text-muted">—</span>
                                             )}
                                         </td>
                                         <td className="py-3 px-4 text-slate-200">
@@ -396,6 +439,17 @@ export const HistoryView: React.FC = () => {
                             )}
                         </tbody>
                     </table>
+                </div>
+                <div ref={paginationRef}>
+                    {!error && !isLoading && (
+                        <Pagination
+                            currentPage={page}
+                            totalPages={totalPages}
+                            totalItems={totalItems}
+                            pageSize={pageSize}
+                            onPageChange={handlePageChange}
+                        />
+                    )}
                 </div>
             </div>
         </div>

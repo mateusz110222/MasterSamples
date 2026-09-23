@@ -52,6 +52,8 @@ const translations = {
         blockedLoadingText: 'Skanowanie katalogu blokad maszyn...',
         blockedNoneTitle: 'Brak zablokowanych maszyn',
         blockedNoneDesc: 'Wszystkie linie produkcyjne pracują bez blokad.',
+        blockedNoMatches: 'Brak maszyn pasujących do wyszukiwania.',
+        blockedLoadError: 'Nie udało się pobrać listy blokad.',
         blockedColMachine: 'Maszyna',
         blockedColPrefix: 'Prefiks / Master',
         blockedColDate: 'Data Zablokowania',
@@ -118,7 +120,7 @@ const translations = {
         // Table headers
         thMasterId: 'Master ID',
         thProcess: 'Proces',
-        thFis: 'Parametry (FIS)',
+        thFis: 'FIS',
         thCycles: 'Zużycie (Cykle)',
         thErrors: 'Licznik Błędów',
         thGlobal: 'Globalny',
@@ -223,6 +225,8 @@ const translations = {
         emailAddressPlaceholder: 'np. PLBLO_SMT_ENG@borgwarner.com',
         deleteMailTitle: 'Usuń Adres Mailowy',
         deleteMailConfirm: 'Czy na pewno chcesz usunąć ten adres e-mail z książki adresowej?',
+        sidebarAuthorRole: 'Stworzone przez',
+        sidebarAuthorLabel: 'Autor Aplikacji',
     },
     EN: {
         // Navigation
@@ -271,6 +275,8 @@ const translations = {
         blockedLoadingText: 'Scanning machine block directory...',
         blockedNoneTitle: 'No blocked machines',
         blockedNoneDesc: 'All production lines are running without blocks.',
+        blockedNoMatches: 'No machines match the search.',
+        blockedLoadError: 'Could not load the blocked machines.',
         blockedColMachine: 'Machine',
         blockedColPrefix: 'Prefix / Master',
         blockedColDate: 'Block Date',
@@ -337,7 +343,7 @@ const translations = {
         // Table headers
         thMasterId: 'Master ID',
         thProcess: 'Process',
-        thFis: 'Parameters (FIS)',
+        thFis: 'FIS',
         thCycles: 'Cycle Usage',
         thErrors: 'Error Counter',
         thGlobal: 'Global',
@@ -442,6 +448,8 @@ const translations = {
         emailAddressPlaceholder: 'e.g. PLBLO_SMT_ENG@borgwarner.com',
         deleteMailTitle: 'Delete Email Contact',
         deleteMailConfirm: 'Are you sure you want to remove this email contact from the directory?',
+        sidebarAuthorRole: 'Created by',
+        sidebarAuthorLabel: 'Application Author',
     }
 };
 

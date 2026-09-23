@@ -9,10 +9,10 @@ import { Badge } from '../components/common/Badge';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 import { getErrorMessage } from '../lib/errors';
 import {
-    Cpu,
     Trash2,
     RefreshCw,
     Search,
+    X,
     CheckCircle2,
     ShieldAlert
 } from 'lucide-react';
@@ -35,7 +35,7 @@ export const BlockedMachinesView: React.FC = () => {
         mutationFn: (filename: string) => blockedApi.deleteBlockedMachine(filename),
         onMutate: () => setActionError(null),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
+            void queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
             setDeleteTarget(null);
         },
         onError: (error: unknown) => setActionError(getErrorMessage(error)),
@@ -74,15 +74,16 @@ export const BlockedMachinesView: React.FC = () => {
 
             {/* Filter and action bar */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap">
-                <div className="relative flex-1 min-w-[240px]">
+                <div className="relative flex-1 min-w-60">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                     <input
                         type="text"
                         placeholder={t.blockedSearchPlaceholder}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
+                        className="w-full pl-10 pr-10 py-2 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                     />
+                    {searchTerm && <button type="button" onClick={() => setSearchTerm('')} aria-label={t.clearFilters} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-brand-text-muted hover:text-brand-text"><X size={15} /></button>}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -102,8 +103,8 @@ export const BlockedMachinesView: React.FC = () => {
 
             {/* Table */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
+                <div className="max-h-[65dvh] overflow-auto">
+                    <table className="sticky-header-table w-full text-left text-xs border-collapse">
                         <thead>
                             <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                 <th className="py-3.5 px-4 font-semibold">{t.blockedColMachine}</th>
@@ -122,6 +123,10 @@ export const BlockedMachinesView: React.FC = () => {
                                         </div>
                                     </td>
                                 </tr>
+                            ) : machinesError && machines.length === 0 ? (
+                                <tr><td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">{t.blockedLoadError}</td></tr>
+                            ) : filteredMachines.length === 0 && machines.length > 0 ? (
+                                <tr><td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">{t.blockedNoMatches}</td></tr>
                             ) : filteredMachines.length === 0 ? (
                                 <tr>
                                     <td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted/70 font-sans">
@@ -140,7 +145,6 @@ export const BlockedMachinesView: React.FC = () => {
                                         className="animate-row-enter hover:bg-brand-surface-high transition-colors duration-150"
                                     >
                                         <td className="py-3.5 px-4 font-bold text-brand-text flex items-center gap-2">
-                                            <Cpu className="text-brand-accent" size={16} />
                                             <span>{m.machine}</span>
                                         </td>
                                         <td className="py-3.5 px-4">

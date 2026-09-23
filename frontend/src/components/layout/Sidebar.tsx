@@ -7,6 +7,7 @@ import {
     Mail,
     History,
     X,
+    Code2,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { useLanguage } from '../../i18n/useLanguage';
@@ -51,6 +52,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
         </nav>
     );
 
+    const authorFooter = (
+        <div className="border-t border-brand-border/60 p-3.5 bg-brand-surface/40">
+            <div className="flex items-center gap-3 rounded-lg border border-brand-border/50 bg-brand-surface-high/30 p-2.5 transition-colors hover:border-brand-accent/40">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-brand-accent/30 bg-brand-accent/15 text-brand-accent">
+                    <Code2 size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-text-muted/70">
+                        {t.sidebarAuthorRole}
+                    </p>
+                    <p className="truncate text-xs font-bold text-brand-text">
+                        Mateusz Zieliński
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <>
             <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-brand-border bg-brand-surface lg:flex">
@@ -58,6 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
                     <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
                 </div>
                 {navigation()}
+                {authorFooter}
             </aside>
 
             {mobileOpen && (
@@ -84,6 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
                             </button>
                         </div>
                         {navigation(onMobileClose)}
+                        {authorFooter}
                     </aside>
                 </div>
             )}

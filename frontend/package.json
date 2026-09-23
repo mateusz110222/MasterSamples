@@ -8,7 +8,6 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --test tests/*.test.ts",
-    "test:ui:fis": "node scripts/test_fis_toggle.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -18,7 +17,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",
-    "react-select": "^5.10.2",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

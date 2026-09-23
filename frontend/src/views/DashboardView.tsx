@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MasterUnit, ResetType } from '../types';
 import { useAuth } from '../auth/useAuth';
@@ -11,6 +11,8 @@ import {
     buildMastersCsv,
     downloadTextFile,
     filterMasters,
+    getActivePercentage,
+    matchesCurrentUser,
     sortMasters,
     splitProcesses,
     type MasterSortField,
@@ -36,6 +38,7 @@ import {
     ShieldCheck,
 } from 'lucide-react';
 import { Pagination } from '../components/common/Pagination';
+import { useAdaptiveTableColumns } from '../hooks/useAdaptiveTableColumns';
 
 export const DashboardView: React.FC = () => {
     const navigate = useNavigate();
@@ -51,31 +54,9 @@ export const DashboardView: React.FC = () => {
     const [taskPreset, setTaskPreset] = useState<TaskPreset>('all');
     const [pageSize, setPageSize] = useState<number>(50);
     const [currentPage, setCurrentPage] = useState<number>(1);
-
-    // Visible columns matching PalletX
-    const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
-        try {
-            const saved = localStorage.getItem('master_table_hidden_cols');
-            return saved ? JSON.parse(saved) : [];
-        } catch {
-            return [];
-        }
-    });
-
-    const toggleColumn = (col: string) => {
-        setHiddenColumns(prev => {
-            const next = prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col];
-            try {
-                localStorage.setItem('master_table_hidden_cols', JSON.stringify(next));
-            } catch {}
-            return next;
-        });
-    };
-
-    // Reset to first page when filtering or page size changes
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, pageSize]);
+    const tableCardRef = useRef<HTMLDivElement>(null);
+    const tableBodyRef = useRef<HTMLTableSectionElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
 
     // Interactive column sorting
     const [sortField, setSortField] = useState<MasterSortField>('unit');
@@ -107,7 +88,7 @@ export const DashboardView: React.FC = () => {
         const total = masters.length;
         const active = masters.filter(m => m.isactive === 1).length;
         const blocked = masters.filter(m => m.isactive === 2).length;
-        const pctActive = total > 0 ? Math.round((active / total) * 100) : 100;
+        const pctActive = getActivePercentage(active, total);
         return { total, active, blocked, pctActive };
     }, [masters]);
 
@@ -117,7 +98,6 @@ export const DashboardView: React.FC = () => {
         let cycles80 = 0;
         let errorsExceeded = 0;
         let myProcesses = 0;
-        const currentUid = user?.uid?.toLowerCase() || '';
 
         masters.forEach(m => {
             const cycleExceeded = m.maxCounter > 0 && m.currentCounter >= m.maxCounter;
@@ -128,11 +108,11 @@ export const DashboardView: React.FC = () => {
             if (cycleExceeded || errorExceeded || isDead) actionRequired++;
             if (cycle80) cycles80++;
             if (errorExceeded) errorsExceeded++;
-            if (currentUid && m.user?.toLowerCase().includes(currentUid)) myProcesses++;
+            if (matchesCurrentUser(m.user ?? '', user?.uid, user?.name)) myProcesses++;
         });
 
         return { actionRequired, cycles80, errorsExceeded, myProcesses };
-    }, [masters, user?.uid]);
+    }, [masters, user?.uid, user?.name]);
 
     // Unique process list
     const processOptions = useMemo(() => {
@@ -152,8 +132,9 @@ export const DashboardView: React.FC = () => {
             activity: selectedActive,
             taskPreset,
             currentUser: user?.uid,
+            currentUserName: user?.name,
         });
-    }, [masters, searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, user?.uid]);
+    }, [masters, searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, user?.uid, user?.name]);
 
     // Sorted data
     const sortedMasters = useMemo(() => {
@@ -165,12 +146,24 @@ export const DashboardView: React.FC = () => {
     const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
     const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
 
-    const startIndex = totalItems === 0 ? 0 : (safeCurrentPage - 1) * pageSize;
-    const endIndex = Math.min(startIndex + pageSize, totalItems);
-
     const displayedMasters = useMemo(() => {
-        return sortedMasters.slice(startIndex, endIndex);
-    }, [sortedMasters, startIndex, endIndex]);
+        const startIndex = (safeCurrentPage - 1) * pageSize;
+        return sortedMasters.slice(startIndex, startIndex + pageSize);
+    }, [sortedMasters, safeCurrentPage, pageSize]);
+    useAdaptiveTableColumns(tableRef, displayedMasters, 8, 1, language);
+
+    const handlePageChange = (nextPage: number) => {
+        if (nextPage === safeCurrentPage) return;
+        tableBodyRef.current?.scrollTo({ top: 0 });
+        setCurrentPage(nextPage);
+        tableCardRef.current?.scrollIntoView({ block: 'start' });
+    };
+
+    const selectTaskPreset = (preset: TaskPreset) => {
+        setTaskPreset(current => current === preset && preset !== 'all' ? 'all' : preset);
+        setCurrentPage(1);
+        tableBodyRef.current?.scrollTo({ top: 0 });
+    };
 
     // Sort handler
     const handleSort = (field: MasterSortField) => {
@@ -189,6 +182,7 @@ export const DashboardView: React.FC = () => {
         setSelectedActive('all');
         setTaskPreset('all');
         setCurrentPage(1);
+        tableBodyRef.current?.scrollTo({ top: 0 });
     };
 
     // CSV Export
@@ -216,18 +210,20 @@ export const DashboardView: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span>{stats.pctActive}% {t.statActive}</span>
+                        <span>{stats.pctActive.toLocaleString(isPl ? 'pl-PL' : 'en-US', { maximumFractionDigits: 1 })}% {t.statActive}</span>
                     </div>
                 </div>
 
                 {/* Stat 2: SERWIS / ZABLOKOWANE (Clickable Operational Alert) */}
-                <div
+                <button
+                    type="button"
+                    disabled={stats.blocked === 0}
+                    aria-pressed={taskPreset === 'blocked'}
+                    aria-label={`${t.statServiceBlocked}: ${stats.blocked}`}
                     onClick={() => {
-                        if (stats.blocked > 0) {
-                            setTaskPreset(prev => prev === 'blocked' ? 'all' : 'blocked');
-                        }
+                        selectTaskPreset('blocked');
                     }}
-                    className={`lg:col-span-3 bg-brand-surface border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift transition-all select-none ${
+                    className={`lg:col-span-3 w-full text-left bg-brand-surface border p-4 rounded-2xl flex flex-col justify-between shadow-lg hover-lift transition-all select-none focus-visible:outline-2 focus-visible:outline-brand-accent ${
                         stats.blocked > 0 ? 'cursor-pointer' : ''
                     } ${
                         taskPreset === 'blocked'
@@ -246,7 +242,7 @@ export const DashboardView: React.FC = () => {
                     <div className="flex items-center justify-between text-xs text-brand-text-muted font-medium">
                         <span>{stats.blocked > 0 ? t.statRequiresAttention : t.statNoBlocked}</span>
                     </div>
-                </div>
+                </button>
 
                 {/* Action Buttons & Search (tight vertical column without large empty gap) */}
                 <div className="lg:col-span-6 flex flex-col justify-center gap-2.5">
@@ -283,13 +279,13 @@ export const DashboardView: React.FC = () => {
                             type="text"
                             placeholder={t.searchPlaceholder}
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                             className="w-full h-11 pl-10 pr-10 bg-brand-surface border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                         />
                         {searchTerm && (
                             <button
                                 type="button"
-                                onClick={() => setSearchTerm('')}
+                                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-brand-text-muted hover:text-white rounded-lg hover:bg-brand-surface-high transition-colors cursor-pointer"
                                 title="Wyczyść wyszukiwanie"
                             >
@@ -309,7 +305,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedProcess}
-                        onChange={(e) => setSelectedProcess(e.target.value)}
+                        onChange={(e) => { setSelectedProcess(e.target.value); setCurrentPage(1); }}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedProcess
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -330,7 +326,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedStatus}
-                        onChange={(e) => setSelectedStatus(e.target.value)}
+                        onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedStatus
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -350,7 +346,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedActive}
-                        onChange={(e) => setSelectedActive(e.target.value)}
+                        onChange={(e) => { setSelectedActive(e.target.value); setCurrentPage(1); }}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedActive !== 'all'
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -370,7 +366,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={pageSize}
-                        onChange={(e) => setPageSize(Number(e.target.value))}
+                        onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
                         className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
                     >
                         <option value={15}>15</option>
@@ -387,7 +383,7 @@ export const DashboardView: React.FC = () => {
                     type="button"
                     onClick={clearFilters}
                     className={`interactive-button h-9 px-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all duration-200 ${
-                        searchTerm || selectedProcess || selectedStatus || selectedActive !== 'all'
+                        searchTerm || selectedProcess || selectedStatus || selectedActive !== 'all' || taskPreset !== 'all'
                             ? 'bg-indigo-500/20 border-brand-accent text-indigo-300 hover:bg-indigo-500/30 shadow-xs'
                             : 'bg-brand-surface-high border-brand-border text-brand-text-muted hover:text-brand-text hover:border-brand-text-muted/60'
                     }`}
@@ -418,7 +414,8 @@ export const DashboardView: React.FC = () => {
                             <button
                                 key={pill.id}
                                 type="button"
-                                onClick={() => setTaskPreset(pill.id as TaskPreset)}
+                                aria-pressed={isActive}
+                                onClick={() => selectTaskPreset(pill.id as TaskPreset)}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
                                     isActive
                                         ? 'bg-brand-accent text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] ring-2 ring-brand-accent/50'
@@ -445,7 +442,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Master Inventory Table matching PalletX */}
-            <div className="bg-brand-surface rounded-xl border border-brand-border overflow-hidden">
+            <div ref={tableCardRef} className="bg-brand-surface rounded-xl border border-brand-border overflow-hidden">
                 {/* Card Header: Title & Refresh Button */}
                 <div className="px-6 py-4 border-b border-brand-border flex flex-wrap gap-3 justify-between items-center bg-brand-surface/50">
                     <h3 className="text-base font-bold text-brand-text">{t.sectionRegistryTitle}</h3>
@@ -462,84 +459,49 @@ export const DashboardView: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Toolbar: Visible columns */}
-                <div className="border-b border-brand-border p-4">
-                    <details className="text-sm">
-                        <summary className="w-fit cursor-pointer rounded-lg border border-brand-border px-3 py-2 text-brand-text select-none hover:bg-brand-surface-high transition-colors">
-                            {isPl ? 'Widoczne kolumny' : 'Visible columns'}
-                        </summary>
-                        <div className="mt-3 flex flex-wrap gap-4 text-xs text-brand-text">
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('process')} onChange={() => toggleColumn('process')} className="cursor-pointer" />
-                                {t.thProcess}
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('fis')} onChange={() => toggleColumn('fis')} className="cursor-pointer" />
-                                {t.thFis}
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('cycles')} onChange={() => toggleColumn('cycles')} className="cursor-pointer" />
-                                {t.thCycles}
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('errors')} onChange={() => toggleColumn('errors')} className="cursor-pointer" />
-                                {t.thErrors}
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('status')} onChange={() => toggleColumn('status')} className="cursor-pointer" />
-                                {t.thStatus}
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!hiddenColumns.includes('operator')} onChange={() => toggleColumn('operator')} className="cursor-pointer" />
-                                {t.thOperator}
-                            </label>
-                        </div>
-                    </details>
-                </div>
-
                 {/* Table Frame & Scroll Container */}
                 <div className="admin-table-frame relative">
-                    <div className="admin-table-scroll relative max-h-[65dvh] overflow-auto">
-                        <table className="w-full border-collapse">
+                    <div className="admin-table-scroll relative overflow-x-auto">
+                        <table ref={tableRef} className="split-scroll-table border-collapse">
                             <thead>
-                                <tr className="bg-brand-surface-high/30 border-b border-brand-border text-left select-none">
+                                <tr className="border-b border-brand-border text-left select-none">
                                     <th aria-sort={sortField === 'unit' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('unit')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thMasterId}
                                             <span aria-hidden="true">{sortField === 'unit' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('process')} aria-sort={sortField === 'process' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'process' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('process')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thProcess}
                                             <span aria-hidden="true">{sortField === 'process' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('fis')} aria-sort={sortField === 'FIS' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'FIS' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('FIS')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thFis}
                                             <span aria-hidden="true">{sortField === 'FIS' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('cycles')} aria-sort={sortField === 'currentCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'currentCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('currentCounter')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thCycles}
                                             <span aria-hidden="true">{sortField === 'currentCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('errors')} aria-sort={sortField === 'errorCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'errorCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('errorCounter')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thErrors}
                                             <span aria-hidden="true">{sortField === 'errorCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('status')} aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('status')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thStatus}
                                             <span aria-hidden="true">{sortField === 'status' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
-                                    <th hidden={hiddenColumns.includes('operator')} aria-sort={sortField === 'user' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                    <th aria-sort={sortField === 'user' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('user')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thOperator}
                                             <span aria-hidden="true">{sortField === 'user' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
@@ -550,10 +512,10 @@ export const DashboardView: React.FC = () => {
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-brand-border">
+                            <tbody ref={tableBodyRef} className="divide-y divide-brand-border">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan={8 - hiddenColumns.length} className="px-6 py-12 text-center text-brand-text-muted">
+                                        <td colSpan={8} className="px-6 py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
                                                 <RefreshCw className="animate-spin text-brand-accent" size={18} />
                                                 <span>{t.loadingMasters}</span>
@@ -562,12 +524,12 @@ export const DashboardView: React.FC = () => {
                                     </tr>
                                 ) : displayedMasters.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8 - hiddenColumns.length} className="px-6 py-12 text-center text-brand-text-muted">
+                                        <td colSpan={8} className="px-6 py-12 text-center text-brand-text-muted">
                                             {t.noMastersFound}
                                         </td>
                                     </tr>
                                 ) : (
-                                    displayedMasters.map(m => {
+                                    displayedMasters.map((m, idx) => {
                                         const isDead = m.isactive === 2;
                                         const maxC = m.maxCounter || 1000;
                                         const currC = m.currentCounter || 0;
@@ -580,26 +542,30 @@ export const DashboardView: React.FC = () => {
                                         const isErrorExceeded = maxE > 0 && currE >= maxE;
 
                                         return (
-                                            <tr key={m.unit} className="hover:bg-brand-surface-high/30 transition-colors">
+                                            <tr
+                                                key={m.unit}
+                                                style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
+                                                className="animate-row-enter hover:bg-brand-surface-high/30 transition-colors"
+                                            >
                                                 {/* Master ID */}
                                                 <td className="px-6 py-4 font-mono text-xs font-semibold">
                                                     <button
                                                         type="button"
                                                         onClick={() => setHistoryTarget(m)}
                                                         title="Historia mastera"
-                                                        className="text-brand-accent hover:text-brand-text hover:underline underline-offset-2 cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-brand-accent rounded px-1 -mx-1"
+                                                        className="w-max whitespace-nowrap text-brand-accent hover:text-brand-text hover:underline underline-offset-2 cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-brand-accent rounded px-1 -mx-1"
                                                     >
                                                         {m.unit}
                                                     </button>
                                                 </td>
 
                                                 {/* Process */}
-                                                <td hidden={hiddenColumns.includes('process')} className="px-6 py-4 text-xs font-medium text-brand-text">
-                                                    {m.process}
+                                                <td className="px-6 py-4 text-xs font-medium text-brand-text">
+                                                    <span className="block w-max max-w-68 wrap-anywhere">{m.process}</span>
                                                 </td>
 
                                                 {/* FIS Parameters */}
-                                                <td hidden={hiddenColumns.includes('fis')} className="px-6 py-4">
+                                                <td className="px-6 py-4">
                                                     <div className="flex flex-wrap gap-1">
                                                         <span className="bg-brand-surface-high text-[0.5625rem] px-2 py-0.5 rounded border border-brand-border font-mono text-brand-text">
                                                             FIS: {m.FIS ? (m.FIS.replace(/[^0-9]/g, '') || m.FIS) : '1'}
@@ -608,7 +574,7 @@ export const DashboardView: React.FC = () => {
                                                 </td>
 
                                                 {/* Cycle Usage with Progress Bar */}
-                                                <td hidden={hiddenColumns.includes('cycles')} className="px-6 py-4">
+                                                <td className="px-6 py-4">
                                                     <div className="w-32 flex flex-col gap-1">
                                                         <div className="flex justify-between text-[0.625rem] font-mono">
                                                             <span className={isLimitExceeded ? "text-red-400 font-bold" : "text-brand-text-muted"}>
@@ -632,7 +598,7 @@ export const DashboardView: React.FC = () => {
                                                 </td>
 
                                                 {/* Error Counter with Progress Bar */}
-                                                <td hidden={hiddenColumns.includes('errors')} className="px-6 py-4">
+                                                <td className="px-6 py-4">
                                                     <div className="w-28 flex flex-col gap-1">
                                                         <div className="flex justify-between text-[0.625rem] font-mono">
                                                             <span className={isErrorExceeded ? "text-red-400 font-bold" : "text-brand-text-muted"}>
@@ -656,7 +622,7 @@ export const DashboardView: React.FC = () => {
                                                 </td>
 
                                                 {/* Quality / Status: GOOD / BAD */}
-                                                <td hidden={hiddenColumns.includes('status')} className="px-6 py-4">
+                                                <td className="px-6 py-4">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider font-mono border ${
                                                         m.status === 'GOOD'
                                                             ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
@@ -667,7 +633,7 @@ export const DashboardView: React.FC = () => {
                                                 </td>
 
                                                 {/* Created By / Operator */}
-                                                <td hidden={hiddenColumns.includes('operator')} className="px-6 py-4">
+                                                <td className="px-6 py-4">
                                                     <div className="flex flex-col">
                                                         <span className="text-xs font-medium text-brand-text">{m.user || '—'}</span>
                                                     </div>
@@ -755,7 +721,7 @@ export const DashboardView: React.FC = () => {
                     totalPages={totalPages}
                     totalItems={totalItems}
                     pageSize={pageSize}
-                    onPageChange={setCurrentPage}
+                    onPageChange={handlePageChange}
                 />
             </div>
 

@@ -21,11 +21,11 @@ export const EngineersView: React.FC = () => {
     const { canEdit } = useAuth();
     const { t } = useLanguage();
 
-    // Active tab: 'processes' (engineers table) or 'mails' (mails table)
+    // Active tab: 'processes' (engineers records) or 'mails' (mail records)
     const [activeTab, setActiveTab] = useState<'processes' | 'mails'>('processes');
     const [searchTerm, setSearchTerm] = useState('');
 
-    // --- State for Process Assignments (engineers) ---
+    // --- State for process assignments ---
     const [editProcessTarget, setEditProcessTarget] = useState<Engineer | null>(null);
     const [editProcessMailValue, setEditProcessMailValue] = useState('');
     const [isAddProcessOpen, setIsAddProcessOpen] = useState(false);
@@ -33,7 +33,7 @@ export const EngineersView: React.FC = () => {
     const [newProcessMail, setNewProcessMail] = useState('');
     const [deleteProcessTarget, setDeleteProcessTarget] = useState<Engineer | null>(null);
 
-    // --- State for Standalone Mails (masterSample.mails) ---
+    // --- State for standalone mail addresses (masterSample.mails) ---
     const [isAddMailOpen, setIsAddMailOpen] = useState(false);
     const [newMailName, setNewMailName] = useState('');
     const [newMailAddress, setNewMailAddress] = useState('');
@@ -74,7 +74,7 @@ export const EngineersView: React.FC = () => {
         onMailDeleted: () => setDeleteMailTarget(null),
     });
 
-    // Suggestion pool from mails directory and existing engineers
+    // Suggestion pool from the mail directory and existing engineer records
     const emailSuggestions = useMemo(() => {
         const set = new Set<string>();
         mails.forEach(m => { if (m.mail) set.add(m.mail.trim()); });
@@ -187,8 +187,8 @@ export const EngineersView: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => {
-                        refetchEngineers();
-                        refetchMails();
+                        void refetchEngineers();
+                        void refetchMails();
                     }}
                     disabled={engFetching || mailsFetching}
                     className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider cursor-pointer"
@@ -200,7 +200,7 @@ export const EngineersView: React.FC = () => {
 
             {/* Filter / Search Bar */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md flex items-center justify-between gap-4 flex-wrap">
-                <div className="relative flex-1 min-w-[260px]">
+                <div className="relative flex-1 min-w-65">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-text-muted" size={17} />
                     <input
                         type="text"
@@ -216,11 +216,10 @@ export const EngineersView: React.FC = () => {
                 </div>
             </div>
 
-            {/* TAB 1 CONTENT: Process Assignments (engineers table) */}
             {activeTab === 'processes' && (
                 <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
+                    <div className="max-h-[65dvh] overflow-auto">
+                        <table className="sticky-header-table w-full text-left text-xs border-collapse">
                             <thead>
                                 <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                     <th className="py-3 px-4 font-semibold w-16">ID</th>
@@ -302,11 +301,10 @@ export const EngineersView: React.FC = () => {
                 </div>
             )}
 
-            {/* TAB 2 CONTENT: Standalone Mails Directory (mails table) */}
             {activeTab === 'mails' && (
                 <div className="bg-brand-surface border border-brand-border rounded-2xl shadow-xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
+                    <div className="max-h-[65dvh] overflow-auto">
+                        <table className="sticky-header-table w-full text-left text-xs border-collapse">
                             <thead>
                                 <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                     <th className="py-3 px-4 font-semibold w-16">ID</th>

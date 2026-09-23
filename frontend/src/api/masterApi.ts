@@ -1,5 +1,5 @@
 import { apiRequest, API_BASE, getSessionUser } from './client.ts';
-import type { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types/index.ts';
+import type { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types';
 
 export type FisTarget = 'FIS1' | 'FIS2';
 
@@ -48,11 +48,6 @@ export const masterApi = {
         return res.data || [];
     },
 
-    checkMaster: async (unit: string): Promise<{ exists: boolean; unit: MasterUnit | null }> => {
-        const res = await apiRequest<{ exists: boolean; unit: MasterUnit | null }>(API_BASE, { job: 'CheckMaster', unit });
-        return res.data;
-    },
-
     createMaster: async (payload: CreateMasterPayload): Promise<ApiResponse<CreateMasterResult>> => {
         const session = getSessionUser();
         const bodyPayload = {
@@ -75,7 +70,7 @@ export const masterApi = {
         });
     },
 
-    blockMaster: async (units: string | string[]): Promise<ApiResponse<unknown>> => {
+    blockMaster: async (units: string | string[]): Promise<ApiResponse> => {
         const unitParam = Array.isArray(units) ? units.join(',') : units;
         return apiRequest(API_BASE, { job: 'BlockMaster' }, {
             method: 'POST',
@@ -83,7 +78,7 @@ export const masterApi = {
         });
     },
 
-    activateMaster: async (unit: string): Promise<ApiResponse<unknown>> => {
+    activateMaster: async (unit: string): Promise<ApiResponse> => {
         return apiRequest(API_BASE, { job: 'ActivateMaster' }, {
             method: 'POST',
             body: JSON.stringify({ unit }),
@@ -119,8 +114,11 @@ export const masterApi = {
         dateTo?: string;
         limit?: number;
         offset?: number;
-    } = {}): Promise<HistoryRecord[]> => {
-        const res = await apiRequest<HistoryRecord[]>(API_BASE, { job: 'GetHistory', ...filters });
-        return res.data || [];
+    } = {}): Promise<{ records: HistoryRecord[]; total: number }> => {
+        const res = await apiRequest<HistoryRecord[] | { records: HistoryRecord[]; total: number }>(API_BASE, { job: 'GetHistory', includeTotal: true, ...filters });
+        if (Array.isArray(res.data)) {
+            return { records: res.data, total: (filters.offset ?? 0) + res.data.length };
+        }
+        return { records: res.data?.records ?? [], total: res.data?.total ?? 0 };
     }
 };

@@ -18,6 +18,62 @@
   --color-brand-success: #10b981;
 }
 
+.sticky-header-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-brand-surface-high);
+  box-shadow: inset 0 -1px var(--color-brand-border);
+}
+
+/* Keep the native vertical scrollbar alongside the rows, below the header. */
+.split-scroll-table {
+  display: block;
+  --table-column-1: auto;
+  --table-column-2: auto;
+  --table-column-3: auto;
+  --table-column-4: auto;
+  --table-column-5: auto;
+  --table-column-6: auto;
+  --table-column-7: auto;
+  --table-column-8: auto;
+  --table-column-9: auto;
+}
+
+.split-scroll-table thead {
+  display: table;
+  width: calc(100% - 14px);
+  table-layout: fixed;
+}
+
+.split-scroll-table thead th {
+  background: var(--color-brand-surface-high);
+  box-shadow: inset 0 -1px var(--color-brand-border);
+}
+
+.split-scroll-table tbody {
+  display: block;
+  max-height: 65dvh;
+  overflow-y: scroll;
+  overflow-anchor: none;
+}
+
+.split-scroll-table tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.split-scroll-table :is(th, td:not([colspan])):nth-child(1) { width: var(--table-column-1); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(2) { width: var(--table-column-2); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(3) { width: var(--table-column-3); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(4) { width: var(--table-column-4); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(5) { width: var(--table-column-5); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(6) { width: var(--table-column-6); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(7) { width: var(--table-column-7); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(8) { width: var(--table-column-8); }
+.split-scroll-table :is(th, td:not([colspan])):nth-child(9) { width: var(--table-column-9); }
+
 @layer base {
   html,
   body,
@@ -29,7 +85,7 @@
   body {
     background-color: var(--color-brand-bg);
     color: var(--color-brand-text);
-    font-family: var(--font-sans);
+    font-family: var(--font-sans), sans-serif;
     letter-spacing: -0.01em;
   }
 
@@ -259,28 +315,6 @@ html:has(.staff-screen) {
   }
 }
 
-@keyframes slideUp {
-  0% {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideDown {
-  0% {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes scaleIn {
   0% {
     opacity: 0;
@@ -349,14 +383,6 @@ html:has(.staff-screen) {
   animation: pageEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.animate-slide-up {
-  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.animate-slide-down {
-  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
 .animate-scale-in {
   animation: scaleIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -384,22 +410,6 @@ html:has(.staff-screen) {
 .animate-drawer-in {
   animation: drawerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
-.animate-pulse-glow {
-  animation: pulseGlow 2s infinite ease-in-out;
-}
-
-.animate-pulse-rose {
-  animation: pulseGlowRose 2s infinite ease-in-out;
-}
-
-/* Stagger Delays */
-.stagger-1 { animation-delay: 40ms; }
-.stagger-2 { animation-delay: 80ms; }
-.stagger-3 { animation-delay: 120ms; }
-.stagger-4 { animation-delay: 160ms; }
-.stagger-5 { animation-delay: 200ms; }
-.stagger-6 { animation-delay: 240ms; }
 
 /* Interactive Hover & Lift micro-animations */
 .hover-lift {
@@ -437,96 +447,9 @@ html:has(.staff-screen) {
   transform: scale(0.96);
 }
 
-/* =========================================================================
- * 🔘 STANDARDIZED TACTILE BUTTONS & ACCESSIBILITY
- * ========================================================================= */
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  font-size: 0.875rem;
-  padding: 0.5rem 1.125rem;
-  border-radius: 0.75rem;
-  background: var(--color-brand-accent);
-  color: #ffffff;
-  box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.btn-primary:hover {
-  background: var(--color-brand-accent-hover);
-  transform: translateY(-1.5px);
-  box-shadow: 0 14px 20px -3px rgba(99, 102, 241, 0.45);
-  filter: brightness(1.06);
-}
-.btn-primary:active {
-  transform: scale(0.97) translateY(0);
-  box-shadow: 0 4px 6px -2px rgba(99, 102, 241, 0.2);
-}
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  font-size: 0.875rem;
-  padding: 0.5rem 1rem;
-  border-radius: 0.75rem;
-  background: var(--color-brand-surface-high);
-  border: 1px solid var(--color-brand-border);
-  color: var(--color-brand-text);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.btn-secondary:hover {
-  background: #334155;
-  border-color: #64748b;
-  color: #ffffff;
-  transform: translateY(-1.5px);
-  box-shadow: 0 6px 14px -2px rgba(0, 0, 0, 0.4);
-}
-.btn-secondary:active {
-  transform: scale(0.97) translateY(0);
-}
-
-.btn-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  font-size: 0.875rem;
-  padding: 0.5rem 1.125rem;
-  border-radius: 0.75rem;
-  background: #e11d48;
-  color: #ffffff;
-  box-shadow: 0 10px 15px -3px rgba(225, 29, 72, 0.35);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.btn-danger:hover {
-  background: #f43f5e;
-  transform: translateY(-1.5px);
-  box-shadow: 0 14px 20px -3px rgba(225, 29, 72, 0.5);
-  filter: brightness(1.06);
-}
-.btn-danger:active {
-  transform: scale(0.97) translateY(0);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-page-enter,
-  .animate-slide-up,
-  .animate-slide-down,
   .animate-scale-in,
   .animate-modal-pop,
   .animate-modal-pop-out,
@@ -534,13 +457,10 @@ html:has(.staff-screen) {
   .animate-drawer-in,
   .interactive-button,
   .hover-lift,
-  .btn-primary,
-  .btn-secondary,
-  .btn-danger {
+  .interactive-pill {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     transform: none !important;
   }
 }
-

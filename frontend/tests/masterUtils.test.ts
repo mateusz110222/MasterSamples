@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMastersCsv, filterMasters, getPaginationItems, matchesProcess, sortMasters } from '../src/lib/masterUtils.ts';
-import type { MasterUnit } from '../src/types/index.ts';
+import { buildMastersCsv, filterMasters, getActivePercentage, getPaginationItems, matchesCurrentUser, matchesProcess, sortMasters } from '../src/lib/masterUtils.ts';
+import type { MasterUnit } from '../src/types';
 
 const master = (overrides: Partial<MasterUnit> = {}): MasterUnit => ({
     id: 1,
@@ -32,6 +32,28 @@ test('filtering combines search, status and activity', () => {
         activity: 'active',
     });
     assert.deepEqual(result.map(item => item.unit), ['ABC-1']);
+});
+
+test('active percentage stays below 100 when inactive masters remain', () => {
+    assert.equal(getActivePercentage(1876, 1885), 99.5);
+    assert.equal(getActivePercentage(9999, 10000), 99.9);
+    assert.equal(getActivePercentage(0, 0), 0);
+});
+
+test('my processes matches the account uid or resolved full name', () => {
+    const creator = 'Zielinski, Mateusz';
+    const units = [
+        master({ unit: 'FULL_NAME', user: creator }),
+        master({ unit: 'OTHER', user: `${creator} 2` }),
+        master({ unit: 'UID', user: 'matzielinski' }),
+    ];
+    const result = filterMasters(units, {
+        searchTerm: '', process: '', status: '', activity: 'all',
+        taskPreset: 'my_processes', currentUser: 'matzielinski', currentUserName: creator,
+    });
+
+    assert.deepEqual(result.map(item => item.unit), ['FULL_NAME', 'UID']);
+    assert.equal(matchesCurrentUser('other', 'matzielinski', creator), false);
 });
 
 test('sorting does not mutate the source list', () => {

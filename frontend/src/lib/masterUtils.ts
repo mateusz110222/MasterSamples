@@ -1,4 +1,4 @@
-import type { MasterUnit } from '../types/index.ts';
+import type { MasterUnit } from '../types';
 
 export type MasterSortField = 'unit' | 'process' | 'FIS' | 'currentCounter' | 'errorCounter' | 'status' | 'user' | 'isactive';
 export type SortDirection = 'asc' | 'desc';
@@ -12,7 +12,17 @@ export interface MasterFilters {
     activity: string;
     taskPreset?: TaskPreset;
     currentUser?: string;
+    currentUserName?: string;
 }
+
+export const getActivePercentage = (active: number, total: number): number =>
+    total > 0 ? Math.floor((active / total) * 1000) / 10 : 0;
+
+export const matchesCurrentUser = (creator: string, uid?: string, name?: string): boolean => {
+    const normalizedCreator = creator.trim().toLocaleLowerCase();
+    return normalizedCreator !== '' && [uid, name]
+        .some(value => value?.trim().toLocaleLowerCase() === normalizedCreator);
+};
 
 export const splitProcesses = (value: string): string[] =>
     value.split(',').map(process => process.trim()).filter(Boolean);
@@ -54,9 +64,7 @@ export const filterMasters = (masters: MasterUnit[], filters: MasterFilters): Ma
                     if (!errorExceeded) return false;
                     break;
                 case 'my_processes':
-                    if (!filters.currentUser) return false;
-                    const u = filters.currentUser.toLowerCase();
-                    if (!master.user?.toLowerCase().includes(u)) return false;
+                    if (!matchesCurrentUser(master.user ?? '', filters.currentUser, filters.currentUserName)) return false;
                     break;
             }
         }

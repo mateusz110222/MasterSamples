@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import type { ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, RotateCcw, Check, CheckCircle2, Ban, Trash2, ExternalLink } from 'lucide-react';
 import { getFisUnitHistoryUrl } from '../../api/fisApi';
 import type { TranslationsType } from '../../i18n/LanguageContext';
@@ -45,7 +45,7 @@ const ModalActions = ({
     onCancel: () => void;
     onConfirm: () => void;
     destructive?: boolean;
-    icon?: React.ReactNode;
+    icon?: ReactNode;
 }) => (
     <div className="flex justify-end gap-3 pt-3">
         <button
@@ -123,11 +123,7 @@ export const DashboardModals = ({
         },
     ];
 
-    const lastBlockMode = useRef(true);
-    if (blockTarget !== null) {
-        lastBlockMode.current = blockTarget.block;
-    }
-    const isBlock = blockTarget !== null ? blockTarget.block : lastBlockMode.current;
+    const isBlock = blockTarget?.block ?? true;
 
     return (
         <>
@@ -266,8 +262,8 @@ export const DashboardModals = ({
                     ) : history.length === 0 ? (
                         <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {historyTarget?.unit}.</p>
                     ) : (
-                        <div className="max-h-[50vh] overflow-x-auto rounded-xl border border-brand-border/60">
-                            <table className="w-full border-collapse text-left font-mono text-xs">
+                        <div className="max-h-[50vh] overflow-auto rounded-xl border border-brand-border/60">
+                            <table className="sticky-header-table w-full border-collapse text-left font-mono text-xs">
                                 <thead><tr className="border-b border-brand-border bg-brand-surface text-brand-text-muted">
                                     <th className="px-3 py-2.5">{t.thDate}</th><th className="px-3 py-2.5">{t.thOperation}</th><th className="px-3 py-2.5">{t.thStatus}</th><th className="px-3 py-2.5">{t.thCycles}</th><th className="px-3 py-2.5">{t.thErrors}</th><th className="px-3 py-2.5">{t.thOperator}</th>
                                 </tr></thead>

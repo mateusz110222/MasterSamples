@@ -436,34 +436,6 @@ try {
             break;
         }
 
-        case 'CheckMaster': {
-            $unit = trim($input['unit'] ?? $input['serialNumber'] ?? '');
-            if ($unit === '') {
-                sendJsonResponse(false, 'Brak parametru unit', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            try {
-                $stmt = $mysqli->prepare("SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS FROM masterUnits WHERE unit = ? LIMIT 1");
-                $stmt->bind_param('s', $unit);
-                $stmt->execute();
-                $row = $stmt->get_result()->fetch_assoc();
-                $stmt->close();
-
-                if ($row && !empty($row['user'])) {
-                    $row['user'] = getUserFullName($row['user']);
-                }
-
-                sendJsonResponse(true, 'Status mastera', [
-                    'exists' => (bool)$row,
-                    'unit' => $row ?: null
-                ]);
-            } finally {
-                $mysqli->close();
-            }
-            break;
-        }
-
         case 'ResetCounters': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
@@ -993,6 +965,7 @@ try {
         case 'GetHistory': {
             $mysqli = getDbConnection();
             try {
+                $includeTotal = !empty($input['includeTotal']);
                 $limit = isset($input['limit']) ? max(1, min(500, (int)$input['limit'])) : 100;
                 $offset = isset($input['offset']) ? max(0, (int)$input['offset']) : 0;
                 $unitFilter = trim($input['unit'] ?? '');
@@ -1043,6 +1016,20 @@ try {
                     $params[] = str_contains($dateTo, ' ') ? $dateTo : ($dateTo . ' 23:59:59');
                 }
 
+                if ($includeTotal) {
+                    $countSql = "SELECT COUNT(*) AS total FROM history";
+                    if (!empty($where)) {
+                        $countSql .= " WHERE " . implode(" AND ", $where);
+                    }
+                    $countStmt = $mysqli->prepare($countSql);
+                    if ($params) {
+                        $countStmt->bind_param($types, ...$params);
+                    }
+                    $countStmt->execute();
+                    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+                    $countStmt->close();
+                }
+
                 $sql = "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date` FROM history";
                 if (!empty($where)) {
                     $sql .= " WHERE " . implode(" AND ", $where);
@@ -1065,7 +1052,7 @@ try {
                 }
                 unset($row);
 
-                sendJsonResponse(true, 'Historia operacji załadowana', $rows);
+                sendJsonResponse(true, 'Historia operacji załadowana', $includeTotal ? ['records' => $rows, 'total' => $total] : $rows);
             } finally {
                 $mysqli->close();
             }

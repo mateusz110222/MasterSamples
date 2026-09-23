@@ -1,4 +1,4 @@
-import type { ApiResponse } from '../types/index.ts';
+import type { ApiResponse } from '../types';
 
 export const API_BASE = '/custom/matz/php/MasterDashboard.php';
 export const ROUTER_API_BASE = '/custom/matz/phpBB/router.php';
@@ -6,12 +6,12 @@ export const AUTH_API_BASE = '/custom/auth/GetUserName.php';
 
 export class ApiError extends Error {
     readonly statusCode: number;
-    readonly response?: ApiResponse<unknown>;
+    readonly response?: ApiResponse;
 
     constructor(
         message: string,
         statusCode: number,
-        response?: ApiResponse<unknown>,
+        response?: ApiResponse,
     ) {
         super(message);
         this.name = 'ApiError';
@@ -100,7 +100,7 @@ export async function apiRequest<T = unknown>(
         throw new ApiError(
             result.message || `Błąd HTTP ${response.status}: ${response.statusText}`,
             response.status,
-            result as ApiResponse<unknown>,
+            result as ApiResponse,
         );
     }
 

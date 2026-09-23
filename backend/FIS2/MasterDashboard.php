@@ -601,31 +601,6 @@ try {
             sendJsonResponse(true, 'Lista masterów pobrana', $rows);
             break;
 
-        case 'CheckMaster':
-            $rawUnit = getParam($input, 'unit', 'serialNumber');
-            $unit = trim($rawUnit);
-            if ($unit === '') {
-                sendJsonResponse(false, 'Brak parametru unit', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare("SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS FROM masterUnits WHERE unit = ? LIMIT 1");
-            $stmt->bind_param('s', $unit);
-            $stmt->execute();
-            $row = stmtFetchAssoc($stmt);
-            $stmt->close();
-            $mysqli->close();
-
-            if ($row && !empty($row['user'])) {
-                $row['user'] = getUserFullName($row['user']);
-            }
-
-            sendJsonResponse(true, 'Status mastera', array(
-                'exists' => (bool)$row,
-                'unit' => $row ?: null
-            ));
-            break;
-
         case 'ResetCounters':
             $rawUnits = getParam($input, 'units', 'unit');
             if (empty($rawUnits) && isset($input['serialNumber'])) {

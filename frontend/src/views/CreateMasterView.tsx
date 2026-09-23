@@ -1,20 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { fisApi } from '../api/fisApi';
 import { masterApi, CreateMasterPayload, FisTarget } from '../api/masterApi';
-import type { MasterUnit } from '../types';
+import type { MasterUnit, ProcessTagItem } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
-import Select, { StylesConfig, SingleValue } from 'react-select';
 import { getErrorMessage } from '../lib/errors';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 
-export interface ProcessOption {
-    value: string;
-    label: string;
-    description?: string;
-}
 import {
     PlusCircle,
     ArrowLeft,
@@ -23,8 +17,146 @@ import {
     Check,
     RefreshCw,
     X,
-    Search
+    Search,
+    ChevronDown
 } from 'lucide-react';
+
+const ProcessCombobox = ({
+    options,
+    value,
+    onChange,
+    label,
+    placeholder,
+    isLoading,
+    hasError,
+}: {
+    options: ProcessTagItem[];
+    value: string;
+    onChange: (value: string) => void;
+    label: string;
+    placeholder: string;
+    isLoading: boolean;
+    hasError: boolean;
+}) => {
+    const inputId = useId();
+    const listId = useId();
+    const containerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [activeIndex, setActiveIndex] = useState(-1);
+    const filtered = useMemo(() => {
+        const search = query.trim().toLocaleLowerCase();
+        return search
+            ? options.filter(option => option.key.toLocaleLowerCase().includes(search))
+            : options;
+    }, [options, query]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const closeOnOutsideClick = (event: PointerEvent) => {
+            if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+        };
+        document.addEventListener('pointerdown', closeOnOutsideClick);
+        return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && activeIndex >= 0) {
+            document.getElementById(`${listId}-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [activeIndex, isOpen, listId]);
+
+    const choose = (key: string) => {
+        onChange(key);
+        setQuery('');
+        setIsOpen(false);
+        setActiveIndex(-1);
+        inputRef.current?.focus();
+    };
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!isOpen) {
+                setIsOpen(true);
+                setQuery('');
+                setActiveIndex(event.key === 'ArrowDown' ? 0 : options.length - 1);
+            } else if (filtered.length > 0) {
+                setActiveIndex(index => event.key === 'ArrowDown'
+                    ? (index + 1) % filtered.length
+                    : (index <= 0 ? filtered.length - 1 : index - 1));
+            }
+        } else if (event.key === 'Enter' && isOpen) {
+            event.preventDefault();
+            const option = filtered[activeIndex >= 0 ? activeIndex : 0];
+            if (option) choose(option.key);
+        } else if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            setIsOpen(false);
+            setQuery('');
+            setActiveIndex(-1);
+        }
+    };
+
+    return (
+        <div ref={containerRef} className="relative" onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
+        }}>
+            <label htmlFor={inputId} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-brand-text">
+                {label} <span className="text-rose-400">*</span>
+            </label>
+            <div className={`flex h-12 items-center rounded-xl border bg-brand-surface-high px-3 transition-colors ${isOpen ? 'border-brand-accent ring-2 ring-brand-accent/20' : 'border-brand-border hover:border-brand-text-muted/60'}`}>
+                <Search size={16} className="mr-2 shrink-0 text-brand-text-muted" aria-hidden="true" />
+                <input
+                    ref={inputRef}
+                    id={inputId}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={isOpen}
+                    aria-controls={listId}
+                    aria-activedescendant={isOpen && activeIndex >= 0 && filtered[activeIndex] ? `${listId}-option-${activeIndex}` : undefined}
+                    autoComplete="off"
+                    value={isOpen ? query : value}
+                    placeholder={isLoading ? 'Ładowanie procesów…' : placeholder}
+                    disabled={isLoading || hasError}
+                    onFocus={() => { setIsOpen(true); setQuery(''); setActiveIndex(-1); }}
+                    onPointerDown={() => {
+                        if (document.activeElement === inputRef.current) {
+                            setIsOpen(open => !open);
+                            setQuery('');
+                            setActiveIndex(-1);
+                        }
+                    }}
+                    onChange={event => { setQuery(event.target.value); setIsOpen(true); setActiveIndex(-1); }}
+                    onKeyDown={handleKeyDown}
+                    className="min-w-0 flex-1 bg-transparent font-mono text-sm text-brand-text placeholder-brand-text-muted outline-none disabled:opacity-60"
+                />
+                {value && <button type="button" aria-label="Wyczyść wybrany proces" title="Wyczyść wybrany proces" onClick={() => choose('')} className="rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"><X size={16} /></button>}
+                <button type="button" tabIndex={-1} aria-label={isOpen ? 'Zamknij listę procesów' : 'Otwórz listę procesów'} onMouseDown={event => event.preventDefault()} onClick={() => { inputRef.current?.focus(); setIsOpen(!isOpen); setQuery(''); setActiveIndex(-1); }} className="ml-1 rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"><ChevronDown size={17} className={isOpen ? 'rotate-180' : ''} /></button>
+            </div>
+            {isOpen && (
+                <div id={listId} role="listbox" aria-label="Procesy produkcyjne" className="absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-brand-border bg-brand-surface-high p-1.5 shadow-2xl shadow-black/60">
+                    {filtered.length === 0 ? (
+                        <p className="px-3 py-3 text-sm text-brand-text-muted">{isLoading ? 'Ładowanie procesów…' : 'Brak pasujących procesów'}</p>
+                    ) : filtered.map((option, index) => (
+                        <div
+                            key={option.key}
+                            id={`${listId}-option-${index}`}
+                            role="option"
+                            aria-selected={option.key === value}
+                            onMouseDown={event => event.preventDefault()}
+                            onClick={() => choose(option.key)}
+                            className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === activeIndex ? 'bg-brand-accent/30 text-white' : 'text-brand-text hover:bg-brand-accent/20'}`}
+                        >
+                            <span className="font-mono font-bold">{option.key}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 export const CreateMasterView: React.FC = () => {
     const navigate = useNavigate();
@@ -75,167 +207,11 @@ export const CreateMasterView: React.FC = () => {
         staleTime: 5 * 60 * 1000,
     });
 
-    // Options formatted for react-select
-    const processSelectOptions: ProcessOption[] = useMemo(() => {
-        return processTags.map(tag => ({
-            value: tag.key,
-            label: tag.key,
-            description: tag.description !== tag.key ? tag.description : undefined
-        }));
-    }, [processTags]);
-
-    const reactSelectStyles: StylesConfig<ProcessOption, false> = useMemo(() => ({
-        control: (base, state) => ({
-            ...base,
-            backgroundColor: '#1f2937',
-            borderColor: state.isFocused ? '#6366f1' : '#374151',
-            boxShadow: state.isFocused ? '0 0 0 2px rgba(99, 102, 241, 0.25)' : 'none',
-            borderRadius: '0.75rem',
-            minHeight: '48px',
-            padding: '0 4px',
-            cursor: 'pointer',
-            transition: 'border-color 0.18s ease-out, box-shadow 0.18s ease-out',
-            '&:hover': {
-                borderColor: state.isFocused ? '#6366f1' : '#64748b'
-            }
-        }),
-        valueContainer: (base) => ({
-            ...base,
-            padding: '2px 8px'
-        }),
-        input: (base) => ({
-            ...base,
-            color: '#f9fafb',
-            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-            fontSize: '0.875rem'
-        }),
-        singleValue: (base) => ({
-            ...base,
-            color: '#f9fafb',
-            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-            fontSize: '0.875rem'
-        }),
-        placeholder: (base) => ({
-            ...base,
-            color: '#94a3b8',
-            fontFamily: '"Plus Jakarta Sans", ui-sans-serif, sans-serif',
-            fontSize: '0.875rem'
-        }),
-        menu: (base) => ({
-            ...base,
-            backgroundColor: '#1f2937',
-            border: '1px solid #374151',
-            borderRadius: '0.75rem',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
-            zIndex: 50,
-            overflow: 'hidden',
-            marginTop: '6px'
-        }),
-        menuList: (base) => ({
-            ...base,
-            padding: '6px',
-            maxHeight: '260px'
-        }),
-        option: (base, state) => ({
-            ...base,
-            backgroundColor: state.isSelected
-                ? '#6366f1'
-                : state.isFocused
-                    ? 'rgba(99, 102, 241, 0.2)'
-                    : 'transparent',
-            color: state.isSelected ? '#ffffff' : '#f9fafb',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            padding: '8px 12px',
-            marginBottom: '2px',
-            fontSize: '0.875rem',
-            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-            '&:active': {
-                backgroundColor: '#4f46e5'
-            }
-        }),
-        clearIndicator: (base) => ({
-            ...base,
-            color: '#94a3b8',
-            cursor: 'pointer',
-            padding: '6px',
-            '&:hover': {
-                color: '#f9fafb'
-            }
-        }),
-        dropdownIndicator: (base, state) => ({
-            ...base,
-            color: '#94a3b8',
-            cursor: 'pointer',
-            padding: '6px',
-            transition: 'transform 0.2s ease, color 0.15s ease',
-            transform: state.selectProps.menuIsOpen ? 'rotate(180deg)' : undefined,
-            '&:hover': {
-                color: '#f9fafb'
-            }
-        }),
-        indicatorSeparator: (base) => ({
-            ...base,
-            backgroundColor: '#374151',
-            margin: '8px 0'
-        }),
-        noOptionsMessage: (base) => ({
-            ...base,
-            color: '#94a3b8',
-            fontSize: '0.875rem',
-            padding: '16px'
-        })
-    }), []);
-
-    const filterOption = (
-        candidate: { label: string; value: string; data: ProcessOption },
-        input: string
-    ) => {
-        if (!input) return true;
-        const term = input.toLowerCase().trim();
-        return (
-            candidate.value.toLowerCase().includes(term) ||
-            candidate.label.toLowerCase().includes(term) ||
-            Boolean(candidate.data.description && candidate.data.description.toLowerCase().includes(term))
-        );
-    };
-
-    const formatOptionLabel = (
-        option: ProcessOption,
-        formatOptionLabelMeta: { context: 'menu' | 'value'; inputValue?: string }
-    ) => {
-        if (formatOptionLabelMeta.context === 'value') {
-            return (
-                <div className="flex items-baseline gap-2 truncate">
-                    <span className="font-bold font-mono text-sm text-brand-text">{option.value}</span>
-                    {option.description && (
-                        <span className="text-xs text-brand-text-muted font-sans truncate">
-                            — {option.description}
-                        </span>
-                    )}
-                </div>
-            );
-        }
-        return (
-            <div className="flex items-center justify-between gap-3 py-0.5">
-                <span className="font-bold font-mono text-sm">{option.value}</span>
-                {option.description && (
-                    <span className="text-xs text-brand-text-muted font-sans truncate text-right">
-                        {option.description}
-                    </span>
-                )}
-            </div>
-        );
-    };
-
     // Filtered processes for multiple selection
     const filteredMultiTags = useMemo(() => {
         if (!multiSearchQuery.trim()) return processTags;
         const q = multiSearchQuery.toLowerCase().trim();
-        return processTags.filter(tag =>
-            tag.key.toLowerCase().includes(q) ||
-            (tag.description && tag.description.toLowerCase().includes(q))
-        );
+        return processTags.filter(tag => tag.key.toLowerCase().includes(q));
     }, [processTags, multiSearchQuery]);
 
     const createMutation = useMutation({
@@ -251,7 +227,7 @@ export const CreateMasterView: React.FC = () => {
 
             if (res.status) {
                 setFeedback({ type: 'success', message: res.message || 'Master został pomyślnie zapisany w systemie!' });
-                queryClient.invalidateQueries({ queryKey: ['masters'] });
+                void queryClient.invalidateQueries({ queryKey: ['masters'] });
                 setExistingModalData(null);
                 // Reset form
                 setSerialNumber('');
@@ -269,7 +245,7 @@ export const CreateMasterView: React.FC = () => {
         }
     });
 
-    const handleSubmit = (e: React.FormEvent, forceUpdate = false) => {
+    const handleSubmit = (e: React.SyntheticEvent, forceUpdate = false) => {
         e.preventDefault();
         setFeedback(null);
 
@@ -432,27 +408,17 @@ export const CreateMasterView: React.FC = () => {
                         />
                     </div>
 
-                    {/* 2. Process Selection: React Select for Single, or Filtered Pool for Multiple */}
+                    {/* 2. Process Selection */}
                     {mode === 'single' ? (
-                        <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                {t.processLabel} <span className="text-rose-400">*</span>
-                            </label>
-                            <Select<ProcessOption, false>
-                                instanceId="create-master-process-select"
-                                value={processSelectOptions.find(opt => opt.value === singleProcess) || null}
-                                onChange={(opt: SingleValue<ProcessOption>) => setSingleProcess(opt ? opt.value : '')}
-                                options={processSelectOptions}
-                                styles={reactSelectStyles}
-                                placeholder={t.selectProcessPlaceholder}
-                                isClearable
-                                isSearchable
-                                isLoading={tagsLoading}
-                                noOptionsMessage={() => 'Brak pasujących procesów'}
-                                filterOption={filterOption}
-                                formatOptionLabel={formatOptionLabel}
-                            />
-                        </div>
+                        <ProcessCombobox
+                            options={processTags}
+                            value={singleProcess}
+                            onChange={setSingleProcess}
+                            label={t.processLabel}
+                            placeholder={t.selectProcessPlaceholder}
+                            isLoading={tagsLoading}
+                            hasError={Boolean(processTagsError)}
+                        />
                     ) : (
                         <div className="space-y-2.5">
                             <div className="flex items-center justify-between">
@@ -557,7 +523,6 @@ export const CreateMasterView: React.FC = () => {
                                                 <button
                                                     key={tag.key}
                                                     type="button"
-                                                    title={tag.description}
                                                     onClick={() => toggleMultiProcess(tag.key)}
                                                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
                                                         selected

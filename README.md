@@ -1,6 +1,6 @@
 # Master Samples Dashboard (React 19 + TypeScript + PHP)
 
-Nowoczesny system monitoringu i zarządzania jednostkami wzorcowymi (Golden Samples / Master Samples) w środowisku produkcyjnym, stworzony w oparciu o architekturę i design system aplikacji **Paletki**.
+Nowoczesny system monitoringu i zarządzania jednostkami wzorcowymi (Golden Samples / Master Samples) w środowisku produkcyjnym, stworzony na podstawie architektury i systemu projektowego aplikacji **Paletki**.
 
 ---
 
@@ -29,7 +29,7 @@ Aplikacja składa się z dwóch niezależnych części:
    - Karty KPI: Aktywne, Status GOOD/BAD, Blisko limitu (>80%), Wykryte błędy, Zablokowane (Dead).
    - Tabela jednostek z wizualnymi paskami postępu liczników zużycia i błędów.
    - Akcje na każdym rekordzie:
-     - **Reset Liczników** (zerowanie z wpisem do `history`, blokada dla jednostek dead `isActive = 2`).
+     - **Reset Liczników** (zerowanie ze wpisem do `history`, blokada dla jednostek dead `isActive = 2`).
      - **Zablokuj / Aktywuj Mastera** (zmiana `isActive = 2` lub `1` z audytem).
      - **Historia Mastera** (modal z pełnym dziennikiem zdarzeń dla danego numeru SN).
      - **Usuń z bazy** (fizyczne usunięcie `DELETE FROM masterUnits` z uprzednim wpisem audytu w `history`).
@@ -37,7 +37,7 @@ Aplikacja składa się z dwóch niezależnych części:
    - Tryby: **Single Process** (pojedynczy proces) oraz **Multiple Processes** (wiele procesów jednocześnie).
    - Tagi procesów pobierane z `/custom/matz/phpBB/router.php?job=GetProcessTags`.
    - Procedura FIS przed zapisem: `Unit::Find` $\rightarrow$ `Archive::GetAll` $\rightarrow$ `Archive::Unarchive` $\rightarrow$ `Unit::Delete` $\rightarrow$ `Unit::DataEntry`.
-   - W przypadku istniejącego SN: automatyczne okno porównania starych i nowych parametrów (Old vs New) z prośbą o zatwierdzenie aktualizacji.
+   - W przypadku istniejącego SN: automatyczne okno porównania starych i nowych parametrów z prośbą o zatwierdzenie aktualizacji.
 3. **Zablokowane Maszyny (`/blocked-machines`)**:
    - Skanowanie katalogu `/fis/mantis/data/blocked_machines/`.
    - Podział na maszynę i prefiks (`<machine>_<prefix>`), data zablokowania.
@@ -53,7 +53,7 @@ Aplikacja składa się z dwóch niezależnych części:
 
 ## 🛠️ Uruchomienie Lokalne (Development)
 
-Aplikacja posiada wbudowany **Local Dev Mock Fallback** w kliencie API, co pozwala na natychmiastowe uruchomienie i testowanie interfejsu lokalnie bez aktywnego połączenia z serwerem Apache:
+Aplikację można uruchomić lokalnie przez Vite:
 
 ```bash
 cd frontend
@@ -62,6 +62,7 @@ npm run dev
 ```
 
 Aplikacja uruchomi się pod adresem `http://localhost:3000`.
+Bez serwera Apache i endpointów FIS widoki wymagające danych pokażą błąd pobierania; projekt nie zawiera wbudowanego mocka API.
 
 ---
 
@@ -94,7 +95,7 @@ Wynik kompilacji znajdzie się w katalogu `frontend/dist/`:
 > Gotowa kopia dla drugiego serwera znajduje się w
 > `backend/FIS2/MasterDashboard.php`. Na hoście FIS 2 należy wgrać ją jako
 > `/custom/matz/php/MasterDashboard.php`; jej bezpieczna wartość domyślna to `FIS2`.
-> Operacja `DeleteMaster` jest również kierowana do hosta przypisanego w kolumnie
+> Operacja `DeleteMaster` jest również kierowana na host wskazany w kolumnie
 > `FIS` i przed usunięciem rekordu z bazy wywołuje `Unit::Delete()` z biblioteki
 > `/custom/matz/phpBB/BuildingBlocks.php`.
 

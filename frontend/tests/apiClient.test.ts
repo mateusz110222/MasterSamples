@@ -52,6 +52,36 @@ test('raw JSON endpoints are normalized to the common envelope', async () => {
     }
 });
 
+test('history pagination reads total count and keeps older array responses usable', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    globalThis.window = { location: { origin: 'https://example.test' } } as Window & typeof globalThis;
+    let requestedUrl = '';
+    let responseData: unknown = { records: [{ id: 1 }], total: 126 };
+    globalThis.fetch = async (input) => {
+        requestedUrl = String(input);
+        return new Response(JSON.stringify({ status: true, message: 'OK', data: responseData }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+
+    try {
+        const first = await masterApi.getHistory({ limit: 51, offset: 50 });
+        assert.equal(new URL(requestedUrl).searchParams.get('includeTotal'), 'true');
+        assert.equal(first.total, 126);
+        assert.equal(first.records.length, 1);
+
+        responseData = [{ id: 2 }];
+        const legacy = await masterApi.getHistory({ limit: 51, offset: 50 });
+        assert.equal(legacy.total, 51);
+        assert.equal(legacy.records.length, 1);
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.window = originalWindow;
+    }
+});
+
 test('FIS operations target the selected host and include the FIS value', async () => {
     const originalFetch = globalThis.fetch;
     const originalWindow = globalThis.window;
