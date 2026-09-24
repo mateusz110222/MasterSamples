@@ -427,20 +427,24 @@ function requireWriteAccess()
 {
     $req = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '';
     if ($req !== 'POST') {
+        Lib::ShowError(FILENAME, "requireWriteAccess denied: Method is '$req', POST required");
         sendJsonResponse(false, 'Ta operacja wymaga metody POST', null, 405);
     }
 
     $userId = getAuthenticatedUser();
     if ($userId === '') {
+        Lib::ShowError(FILENAME, "requireWriteAccess denied: No authenticated user");
         sendJsonResponse(false, 'Brak uwierzytelnionego użytkownika', null, 401);
     }
 
     $userGroups = getUserGroups($userId);
     $matched = array_intersect($userGroups, getAllowedGroups());
     if (empty($matched)) {
+        Lib::ShowError(FILENAME, "requireWriteAccess denied for user '$userId'. Groups: [" . implode(', ', $userGroups) . "]");
         sendJsonResponse(false, 'Brak uprawnień do wykonania tej operacji', null, 403);
     }
 
+    Lib::ShowDebug(FILENAME, "requireWriteAccess authorized for user '$userId'");
     return $userId;
 }
 
@@ -498,8 +502,11 @@ $input = getRequestData();
 $job = (string)getParam($input, 'job', null, isset($_GET['job']) ? $_GET['job'] : '');
 
 if ($job === '') {
+    Lib::ShowError(FILENAME, "Incoming request without 'job' parameter from IP " . (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown'));
     sendJsonResponse(false, 'Brak parametru job', null, 400);
 }
+
+Lib::ShowDebug(FILENAME, "[Request] job='$job', method=" . (isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '') . ", user='" . getAuthenticatedUser() . "', IP=" . (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown'));
 
 $blockedMachinesDir = '/fis/mantis/data/blocked_machines/';
 
@@ -612,14 +619,17 @@ try {
             $resetType = strtolower(trim($rt));
 
             if (empty($rawUnits)) {
+                Lib::ShowError(FILENAME, "[ResetCounters] Missing units parameter");
                 sendJsonResponse(false, 'Brak jednostek do zresetowania', null, 400);
             }
 
             $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
             if (empty($unitList)) {
+                Lib::ShowError(FILENAME, "[ResetCounters] No valid units found in: " . var_export($rawUnits, true));
                 sendJsonResponse(false, 'Brak poprawnych jednostek', null, 400);
             }
 
+            Lib::ShowDebug(FILENAME, "[ResetCounters] Start resetting unit(s): [" . implode(', ', $unitList) . "], type='$resetType', operator='$operatorName'");
             $operationName = 'Reset';
             if ($resetType === 'cycles') {
                 $operationName = 'ResetCycles';
@@ -639,6 +649,7 @@ try {
                     $stmtCheck->close();
 
                     if (!$checkRow || (int)$checkRow['isactive'] === 2) {
+                        Lib::ShowDebug(FILENAME, "[ResetCounters] Skipping inactive/blocked unit '$unit'");
                         continue;
                     }
 
@@ -667,6 +678,7 @@ try {
 
                 dbCommit($mysqli);
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[ResetCounters] Succeeded: Reset $resetCount unit(s) (type='$resetType')");
 
                 $msg = "Wyzerowano wszystkie liczniki ($resetCount sztuk)";
                 if ($resetType === 'cycles') {
@@ -679,6 +691,7 @@ try {
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[ResetCounters] Failed: " . $err->getMessage());
                 throw $err;
             }
             break;
@@ -692,10 +705,12 @@ try {
             $operatorName = getUserFullName($user);
 
             if (empty($rawUnits)) {
+                Lib::ShowError(FILENAME, "[BlockMaster] Missing units parameter");
                 sendJsonResponse(false, 'Brak jednostek do zablokowania', null, 400);
             }
 
             $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
+            Lib::ShowDebug(FILENAME, "[BlockMaster] Start blocking unit(s): [" . implode(', ', $unitList) . "], operator='$operatorName'");
             $mysqli = getDbConnection();
             dbBegin($mysqli);
             try {
@@ -717,10 +732,12 @@ try {
 
                 dbCommit($mysqli);
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[BlockMaster] Succeeded for unit(s): [" . implode(', ', $unitList) . "]");
                 sendJsonResponse(true, "Zablokowano mastera (isActive=2)!");
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[BlockMaster] Failed: " . $err->getMessage());
                 throw $err;
             }
             break;
@@ -734,10 +751,12 @@ try {
             $operatorName = getUserFullName($user);
 
             if (empty($rawUnits)) {
+                Lib::ShowError(FILENAME, "[ActivateMaster] Missing units parameter");
                 sendJsonResponse(false, 'Brak jednostek do aktywacji', null, 400);
             }
 
             $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
+            Lib::ShowDebug(FILENAME, "[ActivateMaster] Start activating unit(s): [" . implode(', ', $unitList) . "], operator='$operatorName'");
             $mysqli = getDbConnection();
             dbBegin($mysqli);
             try {
@@ -759,10 +778,12 @@ try {
 
                 dbCommit($mysqli);
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[ActivateMaster] Succeeded for unit(s): [" . implode(', ', $unitList) . "]");
                 sendJsonResponse(true, "Jednostki zostały aktywowane (isActive=1)!");
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[ActivateMaster] Failed: " . $err->getMessage());
                 throw $err;
             }
             break;
@@ -774,9 +795,12 @@ try {
             $user = requireWriteAccess();
 
             if ($unit === '') {
+                Lib::ShowError(FILENAME, "[DeleteMaster] Missing unit parameter");
                 sendJsonResponse(false, 'Brak parametru unit', null, 400);
             }
 
+            $reqFis = isset($input['fis']) ? $input['fis'] : '';
+            Lib::ShowDebug(FILENAME, "[DeleteMaster] Start unit='$unit', requestedFis='$reqFis', user='$user'");
             $mysqli = getDbConnection();
             $stmtMaster = $mysqli->prepare("SELECT FIS FROM masterUnits WHERE unit = ? LIMIT 1");
             $stmtMaster->bind_param('s', $unit);
@@ -786,6 +810,7 @@ try {
 
             if (!$masterRow) {
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[DeleteMaster] Master '$unit' does not exist in database");
                 sendJsonResponse(false, "Master '$unit' nie istnieje w bazie danych", null, 404);
             }
 
@@ -793,12 +818,14 @@ try {
             $requestedFisRaw = isset($input['fis']) ? strtoupper(trim($input['fis'])) : '';
             if ($requestedFisRaw !== '' && !in_array($requestedFisRaw, array('FIS1', 'FIS2'), true)) {
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[DeleteMaster] Invalid requested FIS: '$requestedFisRaw'");
                 sendJsonResponse(false, 'Nieprawidłowy serwer FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
 
             $requestedFis = $requestedFisRaw !== '' ? $requestedFisRaw : $storedFis;
             if ($requestedFis !== $storedFis) {
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[DeleteMaster] FIS mismatch for unit '$unit': expected '$storedFis', got '$requestedFis'");
                 sendJsonResponse(
                     false,
                     "Master '$unit' należy do $storedFis, a żądanie usunięcia wysłano dla $requestedFis.",
@@ -810,6 +837,7 @@ try {
             $serverFis = getServerFis();
             if ($serverFis !== null && $serverFis !== $storedFis) {
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[DeleteMaster] Server mismatch: request hit $serverFis, but unit '$unit' belongs to $storedFis");
                 sendJsonResponse(
                     false,
                     "Żądanie trafiło do $serverFis, ale master '$unit' należy do $storedFis.",
@@ -836,6 +864,7 @@ try {
                     $fisDeleted = true;
                 } catch (Exception $fisError) {
                     if (!isMissingFisUnitError($fisError)) {
+                        Lib::ShowError(FILENAME, "[DeleteMaster] Unit::Delete failed for unit '$unit' in $storedFis: " . $fisError->getMessage());
                         throw new ApiOperationException(
                             formatOperationError('DeleteMaster', 'Unit::Delete', $unit, $storedFis, $fisError),
                             502,
@@ -844,6 +873,7 @@ try {
                         );
                     }
                     $fisAlreadyMissing = true;
+                    Lib::ShowDebug(FILENAME, "[DeleteMaster] Unit '$unit' was already missing from $storedFis");
                 }
 
                 $stmtDel = $mysqli->prepare("DELETE FROM masterUnits WHERE unit = ?");
@@ -854,6 +884,7 @@ try {
 
                 dbCommit($mysqli);
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[DeleteMaster] Succeeded: Master '$unit' deleted from $storedFis and DB (fisDeleted=" . ($fisDeleted ? '1' : '0') . ", affectedRows=$affected)");
 
                 $message = $fisDeleted
                     ? "Master '$unit' został usunięty z $storedFis i z bazy danych"
@@ -866,6 +897,7 @@ try {
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[DeleteMaster] Failed: " . $err->getMessage());
                 if (($fisDeleted || $fisAlreadyMissing) && !($err instanceof ApiOperationException)) {
                     throw new ApiOperationException(
                         formatOperationError(
@@ -905,17 +937,23 @@ try {
             $forceUpdate = !empty($input['forceUpdate']) || !empty($_REQUEST['forceUpdate']);
 
             if ($unit === '' || $processList === '') {
+                Lib::ShowError(FILENAME, "[CreateMaster] Validation error: SN or process is empty (unit='$unit', process='$processList')");
                 sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
             }
 
             $fRaw = isset($input['fis']) ? $input['fis'] : 'FIS2';
             $fisValue = strtoupper(trim($fRaw));
             if (!in_array($fisValue, array('FIS1', 'FIS2'), true)) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Invalid target FIS: '$fisValue'");
                 sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
 
+            $updFlag = $forceUpdate ? '1' : '0';
+            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=$updFlag, user='$user'");
+
             $serverFis = getServerFis();
             if ($serverFis !== null && $serverFis !== $fisValue) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Target mismatch: request for $fisValue hit server $serverFis");
                 sendJsonResponse(
                     false,
                     "Żądanie utworzenia dla $fisValue trafiło do $serverFis.",
@@ -936,6 +974,7 @@ try {
 
             if ($existing && !$forceUpdate) {
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit '$unit' already exists in database. Returning conflict comparison.");
                 sendJsonResponse(true, 'Master o tym numerze już istnieje w bazie', array(
                     'exists' => true,
                     'oldData' => $existing,
@@ -958,6 +997,7 @@ try {
             } catch (Exception $findError) {
                 if (!isMissingFisUnitError($findError)) {
                     $mysqli->close();
+                    Lib::ShowError(FILENAME, "[CreateMaster] Unit::Find failed for '$unit': " . $findError->getMessage());
                     throw new ApiOperationException(
                         formatOperationError('CreateMaster', 'Unit::Find', $unit, $fisValue, $findError),
                         502,
@@ -974,6 +1014,7 @@ try {
                 } catch (Exception $archiveError) {
                     if (!isMissingFisUnitError($archiveError)) {
                         $mysqli->close();
+                        Lib::ShowError(FILENAME, "[CreateMaster] Archive::Unarchive failed for '$unit': " . $archiveError->getMessage());
                         throw new ApiOperationException(
                             formatOperationError('CreateMaster', 'Archive::Unarchive', $unit, $fisValue, $archiveError),
                             502,
@@ -988,8 +1029,10 @@ try {
                 try {
                     Unit::Delete($unit);
                     $fisUnitDeleted = true;
+                    Lib::ShowDebug(FILENAME, "[CreateMaster] Existing unit '$unit' deleted from FIS prior to recreation");
                 } catch (Exception $deleteError) {
                     $mysqli->close();
+                    Lib::ShowError(FILENAME, "[CreateMaster] Deletion of existing unit '$unit' failed: " . $deleteError->getMessage());
                     throw new ApiOperationException(
                         formatOperationError('CreateMaster', 'Unit::Delete', $unit, $fisValue, $deleteError),
                         502,
@@ -1012,8 +1055,10 @@ try {
                     "",
                     "GOLDEN"
                 );
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit::DataEntry succeeded for '$unit'");
             } catch (Exception $dataEntryError) {
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[CreateMaster] Unit::DataEntry failed for '$unit': " . $dataEntryError->getMessage());
                 $state = $fisUnitDeleted
                     ? 'previous_unit_deleted=true, new_unit_created=false; retry_required=true'
                     : 'previous_unit_deleted=false, new_unit_created=false';
@@ -1076,12 +1121,14 @@ try {
 
                 dbCommit($mysqli);
                 $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Succeeded: Master '$unit' saved in database and FIS ($operation)");
 
                 $actionMsg = $existing ? "Master '$unit' został pomyślnie zaktualizowany!" : "Master '$unit' został pomyślnie utworzony i zarejestrowany!";
                 sendJsonResponse(true, $actionMsg, array('unit' => $unit, 'operation' => $operation, 'FIS' => $fisValue));
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
+                Lib::ShowError(FILENAME, "[CreateMaster] Database transaction failed for '$unit': " . $err->getMessage());
                 throw new ApiOperationException(
                     formatOperationError(
                         'CreateMaster',
@@ -1249,21 +1296,26 @@ try {
             break;
 
         case 'DeleteBlockedMachine':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $rawRec = getParam($input, 'record', 'filename');
             $record = trim($rawRec);
             if ($record === '') {
+                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Missing record/filename parameter");
                 sendJsonResponse(false, 'Brak parametru record/filename', null, 400);
             }
 
+            Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Unblocking machine record='$record' by user='$user'");
             $targetPath = $blockedMachinesDir . basename($record);
             if (!is_file($targetPath)) {
+                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Block file '$record' not found at '$targetPath'");
                 sendJsonResponse(false, "Plik blokady '$record' nie istnieje", null, 404);
             }
 
             if (@unlink($targetPath)) {
+                Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Succeeded: unblocked machine '$record'");
                 sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta!");
             }
+            Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Failed to unlink block file '$targetPath'");
             sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
             break;
 
@@ -1278,11 +1330,12 @@ try {
             break;
 
         case 'UpdateEngineerMail':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $process = isset($input['process']) ? trim($input['process']) : '';
             $mail = isset($input['mail']) ? trim($input['mail']) : '';
 
             if ($process === '') {
+                Lib::ShowError(FILENAME, "[UpdateEngineerMail] Missing process parameter");
                 sendJsonResponse(false, 'Brak parametru process', null, 400);
             }
 
@@ -1294,15 +1347,17 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[UpdateEngineerMail] Process '$process' mail set to '$mail' by user '$user'");
             sendJsonResponse(true, "Zaktualizowano grupę mailową dla procesu '$process'", array('affected' => $affected));
             break;
 
         case 'AddEngineer':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $process = isset($input['process']) ? trim($input['process']) : '';
             $mail = isset($input['mail']) ? trim($input['mail']) : '';
 
             if ($process === '') {
+                Lib::ShowError(FILENAME, "[AddEngineer] Missing process parameter");
                 sendJsonResponse(false, 'Brak parametru process', null, 400);
             }
 
@@ -1317,15 +1372,17 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[AddEngineer] Process '$process' configured with mail '$mail' (id=$insertId) by user '$user'");
             sendJsonResponse(true, "Proces '$process' został pomyślnie skonfigurowany!", array('id' => $insertId));
             break;
 
         case 'DeleteEngineer':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : null;
             $process = isset($input['process']) ? trim($input['process']) : '';
 
             if (!$id && $process === '') {
+                Lib::ShowError(FILENAME, "[DeleteEngineer] Missing id or process parameter");
                 sendJsonResponse(false, 'Brak parametru id lub process', null, 400);
             }
 
@@ -1342,6 +1399,7 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[DeleteEngineer] Deleted process configuration (id=" . var_export($id, true) . ", process='$process') by user '$user'");
             sendJsonResponse(true, "Usunięto konfigurację procesu", array('affected' => $affected));
             break;
 
@@ -1353,11 +1411,12 @@ try {
             break;
 
         case 'AddMail':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $name = isset($input['name']) ? trim($input['name']) : '';
             $mail = isset($input['mail']) ? trim($input['mail']) : '';
 
             if ($mail === '') {
+                Lib::ShowError(FILENAME, "[AddMail] Missing email address");
                 sendJsonResponse(false, 'Adres e-mail jest wymagany!', null, 400);
             }
 
@@ -1374,16 +1433,18 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[AddMail] Added mail group '$name' ($mail, id=$id) by user '$user'");
             sendJsonResponse(true, "Dodano grupę mailową '$name' ($mail)", array('id' => $id));
             break;
 
         case 'UpdateMail':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : 0;
             $name = isset($input['name']) ? trim($input['name']) : '';
             $mail = isset($input['mail']) ? trim($input['mail']) : '';
 
             if ($id <= 0 || $mail === '') {
+                Lib::ShowError(FILENAME, "[UpdateMail] Invalid id or missing mail: id=$id, mail='$mail'");
                 sendJsonResponse(false, 'Nieprawidłowe ID lub brak adresu mailowego', null, 400);
             }
 
@@ -1395,13 +1456,15 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[UpdateMail] Updated mail group id=$id to '$name' ($mail) by user '$user'");
             sendJsonResponse(true, "Zaktualizowano grupę mailową", array('affected' => $affected));
             break;
 
         case 'DeleteMail':
-            requireWriteAccess();
+            $user = requireWriteAccess();
             $id = isset($input['id']) ? (int)$input['id'] : 0;
             if ($id <= 0) {
+                Lib::ShowError(FILENAME, "[DeleteMail] Invalid mail id: $id");
                 sendJsonResponse(false, 'Nieprawidłowe ID maila', null, 400);
             }
 
@@ -1413,10 +1476,12 @@ try {
             $stmt->close();
             $mysqli->close();
 
+            Lib::ShowDebug(FILENAME, "[DeleteMail] Deleted mail group id=$id by user '$user'");
             sendJsonResponse(true, "Usunięto grupę mailową", array('affected' => $affected));
             break;
 
         default:
+            Lib::ShowError(FILENAME, "Unknown job requested: '$job'");
             sendJsonResponse(false, "Nieznany job: '$job'", null, 404);
             break;
     }
@@ -1424,7 +1489,8 @@ try {
     if (isset($mysqli) && $mysqli instanceof mysqli) {
         @$mysqli->close();
     }
-    Lib::ShowError(FILENAME, print_r($e, true));
+    Lib::ShowError(FILENAME, "[Fatal] Exception in job '$job': " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+    Lib::ShowError(FILENAME, "[Fatal] Stack trace:\n" . $e->getTraceAsString());
     if ($e instanceof ApiOperationException) {
         sendJsonResponse(false, $e->publicMessage, $e->responseData, $e->statusCode);
     }
