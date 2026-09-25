@@ -27,14 +27,103 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-User, X-User-Name, X-User-Groups, Accept, Origin');
+require("../phpBB/BuildingBlocks.php");
 
 define('FILENAME', basename(__FILE__, '.php'));
+
+$config = @parse_ini_file('/fis/mantis/custom/database/config.ini', true);
+if (!$config || !isset($config['database']['host'], $config['database']['user'], $config['database']['password'])) {
+    try {
+        echo json_encode([
+            'status'  => false,
+            'message' => "Invalid DB config.ini",
+            'data'    => [],
+        ], JSON_THROW_ON_ERROR);
+    } catch (JsonException $e) {
+        Lib::ShowError(FILENAME, "JSON encoding failed: " . $e->getMessage());
+        http_response_code(500);
+    }
+    exit;
+}
+
+define("DB_HOST", $config['database']['host']);
+define("DB_USER", $config['database']['user']);
+define("DB_PASSWORD", $config['database']['password']);
+const DB_NAME = "masterSample";
+const DB_HOST_LOCAL = "localhost";
+const DB_USER_LOCAL = "fiswww";
+const DB_PASSWORD_LOCAL = "";
+const DB_NAME_LOCAL = "users";
+
+const blockedMachinesDir = '/fis/mantis/data/blocked_machines/';
+const PALETKI_AUTH_URL = 'http://10.142.11.66:8082/auth/login';
+
+function callPaletkiAuthLogin(string $login, string $password): array
+{
+    $payload = json_encode([
+        'login' => $login,
+        'password' => $password,
+    ], JSON_UNESCAPED_UNICODE);
+
+    $ch = curl_init(PALETKI_AUTH_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => 4,
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError !== '') {
+        Lib::ShowError(FILENAME, "[Login] cURL error connecting to Paletki auth: " . $curlError);
+        return [
+            'success' => false,
+            'code' => 503,
+            'message' => 'Brak połączenia z serwisem autoryzacji domenowej (Paletki)',
+        ];
+    }
+
+    $data = json_decode((string)$response, true);
+    if (!is_array($data)) {
+        Lib::ShowError(FILENAME, "[Login] Invalid JSON response from Paletki auth ($httpCode): " . substr((string)$response, 0, 200));
+        return [
+            'success' => false,
+            'code' => 502,
+            'message' => 'Nieprawidłowa odpowiedź z serwera autoryzacji',
+        ];
+    }
+
+    if ($httpCode !== 200 || empty($data['status'])) {
+        $msg = $data['message'] ?? 'Nieprawidłowy login lub hasło domenowe';
+        return [
+            'success' => false,
+            'code' => $httpCode >= 400 && $httpCode < 500 ? 401 : 502,
+            'message' => $msg,
+        ];
+    }
+
+    return [
+        'success' => true,
+        'code' => 200,
+        'data' => is_array($data['data'] ?? null) ? $data['data'] : [],
+        'token' => (string)($data['token'] ?? ''),
+        'expires_at' => (string)($data['expires_at'] ?? ''),
+    ];
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
-
 
 const ALLOWED_GROUPS = [
     'admin_group',
@@ -80,58 +169,17 @@ final class ApiOperationException extends RuntimeException
     }
 }
 
-try {
-    $buildingBlocksCandidates = [
-        __DIR__ . '/../phpBB/BuildingBlocks.php', // production: /custom/matz/phpBB
-        __DIR__ . '/BuildingBlocks.php',          // repository main backend
-        __DIR__ . '/../BuildingBlocks.php',       // repository FIS2 deployment copy
-    ];
-    $buildingBlocksPath = null;
-    foreach ($buildingBlocksCandidates as $candidate) {
-        if (is_file($candidate)) {
-            $buildingBlocksPath = $candidate;
-            break;
-        }
-    }
-    if ($buildingBlocksPath === null) {
-        throw new RuntimeException('BuildingBlocks.php was not found in any supported location.');
-    }
-    require_once $buildingBlocksPath;
-} catch (Throwable $error) {
-    Lib::ShowError(FILENAME, print_r($error, true));
-    sendJsonResponse(false, 'Nie udało się załadować biblioteki FIS BuildingBlocks.', null, 500);
-}
-
-function getDbConnection(string $defaultDb = 'masterSample'): mysqli
+function getDbConnection(): mysqli
 {
-    $configPath = '/fis/mantis/custom/database/config.ini';
-    $host = '127.0.0.1';
-    $user = 'root';
-    $password = '';
-    $dbName = $defaultDb;
-
-    if (is_file($configPath)) {
-        $parsed = @parse_ini_file($configPath, true);
-        if ($parsed && isset($parsed['database']['host'], $parsed['database']['user'])) {
-            $host = (string)$parsed['database']['host'];
-            $user = (string)$parsed['database']['user'];
-            $password = (string)($parsed['database']['password'] ?? '');
-        }
-    } else {
-        $host = getenv('DB_HOST') ?: '127.0.0.1';
-        $user = getenv('DB_USER') ?: 'root';
-        $password = getenv('DB_PASSWORD') ?: '';
-    }
-
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-    $mysqli = new mysqli($host, $user, $password, $dbName);
+    $mysqli = new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
     $mysqli->set_charset('utf8mb4');
     return $mysqli;
 }
 
 function getLocalUserDbConnection(): mysqli
 {
-    $mysqli = new mysqli('localhost', 'fiswww', '', 'users');
+    $mysqli = new mysqli(DB_HOST_LOCAL, DB_USER_LOCAL, DB_PASSWORD_LOCAL, DB_NAME_LOCAL);
     $mysqli->set_charset('utf8mb4');
     return $mysqli;
 }
@@ -154,6 +202,9 @@ function cleanUsername(string $user): string
     $user = trim($user);
     if (str_contains($user, '\\')) {
         $user = substr($user, strrpos($user, '\\') + 1);
+    }
+    if (str_contains($user, '@')) {
+        $user = substr($user, 0, strpos($user, '@'));
     }
     return trim($user, " \t\n\r\0\x0B\"'");
 }
@@ -212,20 +263,6 @@ function formatOperationError(
     return $state !== null ? $message . ' | state: ' . $state : $message;
 }
 
-function getCurrentUser(array $input): string
-{
-    $authenticated = getAuthenticatedUser();
-    if ($authenticated !== '') {
-        return $authenticated;
-    }
-
-    $user = trim((string)($input['user'] ?? $input['userId'] ?? ''));
-    if ($user !== '') {
-        return cleanUsername($user);
-    }
-    return 'SYSTEM';
-}
-
 function getAuthenticatedUser(): string
 {
     $remoteUser = cleanUsername(getenv('REMOTE_USER') ?: ($_SERVER['REMOTE_USER'] ?? $_SERVER['AUTH_USER'] ?? ''));
@@ -234,7 +271,7 @@ function getAuthenticatedUser(): string
     }
 
     if (!empty($_SERVER['HTTP_X_USER'])) {
-        return cleanUsername($_SERVER['HTTP_X_USER']);
+        return cleanUsername(rawurldecode((string)$_SERVER['HTTP_X_USER']));
     }
 
     $input = getRequestData();
@@ -248,6 +285,7 @@ function getAuthenticatedUser(): string
 
 function getUserGroups(string $userId): array
 {
+    $userId = cleanUsername($userId);
     try {
         $groups = Lib::GetUserGroup($userId);
         return array_values(array_map('strval', $groups));
@@ -281,54 +319,23 @@ function requireWriteAccess(): string
     return $userId;
 }
 
-function getUserFullName(string $userId): string
+function getOperatorName(): string
 {
-    $cleanId = cleanUsername($userId);
-    if ($cleanId === '' || $cleanId === 'SYSTEM') {
-        return $cleanId !== '' ? $cleanId : $userId;
-    }
-
-    static $cache = [];
-    if (isset($cache[$cleanId])) {
-        return $cache[$cleanId];
-    }
-
-    try {
-        $localDb = getLocalUserDbConnection();
-        $safeUser = $localDb->real_escape_string($cleanId);
-        $res = $localDb->query("SELECT name FROM tbl_users WHERE userId = '$safeUser' OR name = '$safeUser' LIMIT 1");
-        if ($res && ($row = $res->fetch_assoc()) && !empty($row['name'])) {
-            $name = trim((string)$row['name']);
-            $localDb->close();
-            $cache[$cleanId] = $name;
+    if (!empty($_SERVER['HTTP_X_USER_NAME'])) {
+        $name = trim(rawurldecode((string)$_SERVER['HTTP_X_USER_NAME']));
+        if ($name !== '') {
             return $name;
         }
-        $localDb->close();
-    } catch (Throwable $e) {
-        Lib::ShowError(FILENAME, print_r($e, true));
     }
 
-    // Only if resolving the currently authenticated session user, fallback to client-supplied session name
-    $authUser = getAuthenticatedUser();
-    if ($authUser !== '' && strcasecmp($cleanId, $authUser) === 0) {
-        if (!empty($_SERVER['HTTP_X_USER_NAME'])) {
-            $headerName = trim($_SERVER['HTTP_X_USER_NAME']);
-            if ($headerName !== '') {
-                $cache[$cleanId] = $headerName;
-                return $headerName;
-            }
-        }
-
-        $input = getRequestData();
-        $passedName = trim((string)($input['userName'] ?? $input['userFullName'] ?? $input['operatorName'] ?? ''));
-        if ($passedName !== '') {
-            $cache[$cleanId] = $passedName;
-            return $passedName;
-        }
+    $input = getRequestData();
+    $passedName = trim((string)($input['userName'] ?? $input['userFullName'] ?? $input['operatorName'] ?? ''));
+    if ($passedName !== '') {
+        return $passedName;
     }
 
-    $cache[$cleanId] = $cleanId;
-    return $cleanId;
+    $user = getAuthenticatedUser();
+    return $user !== '' ? $user : 'SYSTEM';
 }
 
 $input = getRequestData();
@@ -340,44 +347,72 @@ if ($job === '') {
 }
 
 Lib::ShowDebug(FILENAME, "[Request] job='$job', method=" . ($_SERVER['REQUEST_METHOD'] ?? '') . ", user='" . getAuthenticatedUser() . "', IP=" . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-
-$blockedMachinesDir = '/fis/mantis/data/blocked_machines/';
-
 try {
     switch ($job) {
-        case 'GetUserInfo': {
-            $userId = getCurrentUser($input);
+        case 'Login': {
+            $login = trim((string)($input['login'] ?? $input['username'] ?? ''));
+            $password = (string)($input['password'] ?? '');
 
-            $userInfo = [
-                'userId' => $userId,
-                'name' => $userId,
-                'email' => '',
-                'groups' => [],
-                'canEdit' => false,
-            ];
+            if ($login === '' || $password === '') {
+                Lib::ShowError(FILENAME, "[Login] Missing login or password");
+                sendJsonResponse(false, 'Login i hasło domenowe są wymagane', null, 400);
+            }
 
-            $userInfo['groups'] = getUserGroups($userId);
+            $authRes = callPaletkiAuthLogin($login, $password);
+            if (!$authRes['success']) {
+                Lib::ShowError(FILENAME, "[Login] Auth failed for user '$login': " . $authRes['message']);
+                sendJsonResponse(false, $authRes['message'], null, 200);
+            }
 
-            $userInfo['canEdit'] = !empty(array_intersect($userInfo['groups'], ALLOWED_GROUPS));
+            $paletkiUser = $authRes['data'];
+            $rawPaletkiUser = isset($paletkiUser['username']) ? (string)$paletkiUser['username'] : $login;
+            $cleanUser = cleanUsername($rawPaletkiUser);
+            $fullName = trim((string)($paletkiUser['FullName'] ?? ''));
+            $department = trim((string)($paletkiUser['department'] ?? ''));
+
+            // Pobranie grup i danych z bazy FIS
+            $userGroups = getUserGroups($cleanUser);
+            $canEdit = !empty(array_intersect($userGroups, ALLOWED_GROUPS));
+            $email = '';
 
             try {
                 $localDb = getLocalUserDbConnection();
-                $safeUser = $localDb->real_escape_string($userId);
+                $safeUser = $localDb->real_escape_string($cleanUser);
                 $res = $localDb->query("SELECT name, email FROM tbl_users WHERE userId = '$safeUser' LIMIT 1");
                 if ($res && ($row = $res->fetch_assoc())) {
-                    if (!empty($row['name'])) {
-                        $userInfo['name'] = (string)$row['name'];
+                    if ($fullName === '' && !empty($row['name'])) {
+                        $fullName = (string)$row['name'];
                     }
                     if (!empty($row['email'])) {
-                        $userInfo['email'] = (string)$row['email'];
+                        $email = (string)$row['email'];
                     }
                 }
                 $localDb->close();
             } catch (Throwable $error) {
-                Lib::ShowError(FILENAME, print_r($error, true));
+                Lib::ShowError(FILENAME, "[Login] Database lookup error for '$cleanUser': " . $error->getMessage());
             }
 
-            sendJsonResponse(true, 'Pobrano dane użytkownika', $userInfo);
+            if ($email === '' && str_contains($rawPaletkiUser, '@')) {
+                $email = $rawPaletkiUser;
+            }
+
+            if ($fullName === '') {
+                $fullName = $cleanUser;
+            }
+
+            Lib::ShowDebug(FILENAME, "[Login] User '$cleanUser' logged in successfully. canEdit=" . ($canEdit ? 'true' : 'false') . ", groups=[" . implode(', ', $userGroups) . "]");
+
+            sendJsonResponse(true, 'Zalogowano pomyślnie', [
+                'userId' => $cleanUser,
+                'name' => $fullName,
+                'email' => $email,
+                'department' => $department,
+                'groups' => $userGroups,
+                'canEdit' => $canEdit,
+                'isGuest' => false,
+                'token' => $authRes['token'],
+                'expires_at' => $authRes['expires_at'],
+            ]);
             break;
         }
 
@@ -431,13 +466,6 @@ try {
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
 
-                foreach ($rows as &$row) {
-                    if (!empty($row['user'])) {
-                        $row['user'] = getUserFullName($row['user']);
-                    }
-                }
-                unset($row);
-
                 sendJsonResponse(true, 'Lista masterów pobrana', $rows);
             } finally {
                 $mysqli->close();
@@ -448,7 +476,7 @@ try {
         case 'ResetCounters': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
-            $operatorName = getUserFullName($user);
+            $operatorName = getOperatorName();
             $resetType = strtolower(trim($input['resetType'] ?? 'all'));
 
             if (empty($rawUnits)) {
@@ -536,7 +564,7 @@ try {
         case 'BlockMaster': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
-            $operatorName = getUserFullName($user);
+            $operatorName = getOperatorName();
 
             if (empty($rawUnits)) {
                 Lib::ShowError(FILENAME, "[BlockMaster] Missing units parameter");
@@ -582,7 +610,7 @@ try {
         case 'ActivateMaster': {
             $rawUnits = $input['units'] ?? $input['unit'] ?? $input['serialNumber'] ?? '';
             $user = requireWriteAccess();
-            $operatorName = getUserFullName($user);
+            $operatorName = getOperatorName();
 
             if (empty($rawUnits)) {
                 Lib::ShowError(FILENAME, "[ActivateMaster] Missing units parameter");
@@ -634,7 +662,9 @@ try {
                 sendJsonResponse(false, 'Brak parametru unit', null, 400);
             }
 
-            Lib::ShowDebug(FILENAME, "[DeleteMaster] Start unit='$unit', requestedFis='" . ($input['fis'] ?? '') . "', user='$user'");
+            $fisOnly = !empty($input['fisOnly']) || !empty($input['deleteFisOnly']);
+            $reqFis = $input['fis'] ?? '';
+            Lib::ShowDebug(FILENAME, "[DeleteMaster] Start unit='$unit', requestedFis='$reqFis', fisOnly=" . ($fisOnly ? '1' : '0') . ", user='$user'");
             $mysqli = getDbConnection();
             try {
                 $stmtMaster = $mysqli->prepare("SELECT FIS FROM masterUnits WHERE unit = ? LIMIT 1");
@@ -643,20 +673,20 @@ try {
                 $masterRow = $stmtMaster->get_result()->fetch_assoc();
                 $stmtMaster->close();
 
-                if (!$masterRow) {
+                if (!$masterRow && !$fisOnly) {
                     Lib::ShowError(FILENAME, "[DeleteMaster] Master '$unit' does not exist in database");
                     sendJsonResponse(false, "Master '$unit' nie istnieje w bazie danych", null, 404);
                 }
 
-                $storedFis = normalizeFisValue($masterRow['FIS'] ?? 'FIS1');
+                $storedFis = $masterRow ? normalizeFisValue($masterRow['FIS'] ?? 'FIS1') : null;
                 $requestedFisRaw = strtoupper(trim($input['fis'] ?? ''));
                 if ($requestedFisRaw !== '' && !in_array($requestedFisRaw, ['FIS1', 'FIS2'], true)) {
                     Lib::ShowError(FILENAME, "[DeleteMaster] Invalid requested FIS: '$requestedFisRaw'");
                     sendJsonResponse(false, 'Nieprawidłowy serwer FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
                 }
 
-                $requestedFis = $requestedFisRaw !== '' ? $requestedFisRaw : $storedFis;
-                if ($requestedFis !== $storedFis) {
+                $requestedFis = $requestedFisRaw !== '' ? $requestedFisRaw : ($storedFis ?? 'FIS1');
+                if (!$fisOnly && $storedFis !== null && $requestedFis !== $storedFis) {
                     Lib::ShowError(FILENAME, "[DeleteMaster] FIS mismatch for unit '$unit': expected '$storedFis', got '$requestedFis'");
                     sendJsonResponse(
                         false,
@@ -667,18 +697,50 @@ try {
                 }
 
                 $serverFis = getServerFis();
-                if ($serverFis !== null && $serverFis !== $storedFis) {
-                    Lib::ShowError(FILENAME, "[DeleteMaster] Server mismatch: request hit $serverFis, but unit '$unit' belongs to $storedFis");
+                $targetHostFis = $fisOnly ? $requestedFis : ($storedFis ?? $requestedFis);
+                if ($serverFis !== null && $targetHostFis !== null && $serverFis !== $targetHostFis) {
+                    Lib::ShowError(FILENAME, "[DeleteMaster] Server mismatch: request hit $serverFis, but unit '$unit' belongs to $targetHostFis");
                     sendJsonResponse(
                         false,
-                        "Żądanie trafiło do $serverFis, ale master '$unit' należy do $storedFis.",
-                        ['expected_fis' => $storedFis],
+                        "Żądanie trafiło do $serverFis, ale master '$unit' należy do $targetHostFis.",
+                        ['expected_fis' => $targetHostFis],
                         409
                     );
                 }
 
                 $fisDeleted = false;
                 $fisAlreadyMissing = false;
+                $effectiveFis = $serverFis ?? $targetHostFis;
+
+                try {
+                    Unit::Delete($unit);
+                    $fisDeleted = true;
+                } catch (Throwable $fisError) {
+                    if (!isMissingFisUnitError($fisError)) {
+                        Lib::ShowError(FILENAME, "[DeleteMaster] Unit::Delete failed for unit '$unit' in $effectiveFis: " . $fisError->getMessage());
+                        throw new ApiOperationException(
+                            formatOperationError('DeleteMaster', 'Unit::Delete', $unit, $effectiveFis, $fisError),
+                            502,
+                            ['fis' => $effectiveFis, 'fis_deleted' => false],
+                            $fisError,
+                        );
+                    }
+                    $fisAlreadyMissing = true;
+                    Lib::ShowDebug(FILENAME, "[DeleteMaster] Unit '$unit' was already missing from $effectiveFis");
+                }
+
+                if ($fisOnly) {
+                    Lib::ShowDebug(FILENAME, "[DeleteMaster] Succeeded (fisOnly): Master '$unit' deleted from $effectiveFis (fisDeleted=" . ($fisDeleted ? '1' : '0') . ")");
+                    $message = $fisDeleted
+                        ? "Master '$unit' został usunięty z $effectiveFis"
+                        : "Master '$unit' nie istniał już w $effectiveFis";
+                    sendJsonResponse(true, $message, [
+                        'fis' => $effectiveFis,
+                        'fis_deleted' => $fisDeleted,
+                        'fis_only' => true,
+                    ]);
+                }
+
                 $mysqli->begin_transaction();
                 try {
                     $stmtHist = $mysqli->prepare(
@@ -690,23 +752,6 @@ try {
                     $stmtHist->execute();
                     $stmtHist->close();
 
-                    try {
-                        Unit::Delete($unit);
-                        $fisDeleted = true;
-                    } catch (Throwable $fisError) {
-                        if (!isMissingFisUnitError($fisError)) {
-                            Lib::ShowError(FILENAME, "[DeleteMaster] Unit::Delete failed for unit '$unit' in $storedFis: " . $fisError->getMessage());
-                            throw new ApiOperationException(
-                                formatOperationError('DeleteMaster', 'Unit::Delete', $unit, $storedFis, $fisError),
-                                502,
-                                ['fis' => $storedFis, 'fis_deleted' => false],
-                                $fisError,
-                            );
-                        }
-                        $fisAlreadyMissing = true;
-                        Lib::ShowDebug(FILENAME, "[DeleteMaster] Unit '$unit' was already missing from $storedFis");
-                    }
-
                     $stmtDel = $mysqli->prepare("DELETE FROM masterUnits WHERE unit = ?");
                     $stmtDel->bind_param('s', $unit);
                     $stmtDel->execute();
@@ -714,13 +759,13 @@ try {
                     $stmtDel->close();
 
                     $mysqli->commit();
-                    Lib::ShowDebug(FILENAME, "[DeleteMaster] Succeeded: Master '$unit' deleted from $storedFis and DB (fisDeleted=" . ($fisDeleted ? '1' : '0') . ", affectedRows=$affected)");
+                    Lib::ShowDebug(FILENAME, "[DeleteMaster] Succeeded: Master '$unit' deleted from $effectiveFis and DB (fisDeleted=" . ($fisDeleted ? '1' : '0') . ", affectedRows=$affected)");
                     $message = $fisDeleted
-                        ? "Master '$unit' został usunięty z $storedFis i z bazy danych"
-                        : "Master '$unit' nie istniał już w $storedFis i został usunięty z bazy danych";
+                        ? "Master '$unit' został usunięty z $effectiveFis i z bazy danych"
+                        : "Master '$unit' nie istniał już w $effectiveFis i został usunięty z bazy danych";
                     sendJsonResponse(true, $message, [
                         'affected_rows' => $affected,
-                        'fis' => $storedFis,
+                        'fis' => $effectiveFis,
                         'fis_deleted' => $fisDeleted,
                     ]);
                 } catch (Throwable $err) {
@@ -732,13 +777,13 @@ try {
                                 'DeleteMaster',
                                 'database_delete',
                                 $unit,
-                                $storedFis,
+                                $effectiveFis,
                                 $err,
                                 'unit_absent_in_fis=true, database_deleted=false; retry_required=true',
                             ),
                             500,
                             [
-                                'fis' => $storedFis,
+                                'fis' => $effectiveFis,
                                 'fis_deleted' => $fisDeleted,
                                 'fis_already_missing' => $fisAlreadyMissing,
                                 'database_deleted' => false,
@@ -865,7 +910,7 @@ try {
                     }
                 }
 
-                $creatorName = getUserFullName($user);
+                $creatorName = getOperatorName();
                 $dcmods = 'MS_HISTORY|' . $unit . '_MASTER|MS_PROCESS|' . $processClean . '|MS_STATUS|' . $status . '|OPERATOR|' . $creatorName;
                 try {
                     Unit::DataEntry(
@@ -995,13 +1040,6 @@ try {
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
 
-                foreach ($rows as &$row) {
-                    if (!empty($row['user'])) {
-                        $row['user'] = getUserFullName($row['user']);
-                    }
-                }
-                unset($row);
-
                 sendJsonResponse(true, "Historia dla jednostki '$unit'", $rows);
             } finally {
                 $mysqli->close();
@@ -1092,13 +1130,6 @@ try {
                 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                 $stmt->close();
 
-                foreach ($rows as &$row) {
-                    if (!empty($row['user'])) {
-                        $row['user'] = getUserFullName($row['user']);
-                    }
-                }
-                unset($row);
-
                 sendJsonResponse(true, 'Historia operacji załadowana', $includeTotal ? ['records' => $rows, 'total' => $total] : $rows);
             } finally {
                 $mysqli->close();
@@ -1111,12 +1142,12 @@ try {
          * ========================================================================= */
         case 'GetBlockedMachines': {
             $items = [];
-            if (is_dir($blockedMachinesDir) && ($files = scandir($blockedMachinesDir)) !== false) {
+            if (is_dir(blockedMachinesDir) && ($files = scandir(blockedMachinesDir)) !== false) {
                 foreach ($files as $file) {
                     if ($file === '.' || $file === '..' || str_contains($file, '10.237.')) {
                         continue;
                     }
-                    $fullPath = $blockedMachinesDir . $file;
+                    $fullPath = blockedMachinesDir . $file;
                     if (!is_file($fullPath)) {
                         continue;
                     }
@@ -1149,7 +1180,7 @@ try {
             }
 
             Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Unblocking machine record='$record' by user='$user'");
-            $targetPath = $blockedMachinesDir . basename($record);
+            $targetPath = blockedMachinesDir . basename($record);
             if (!is_file($targetPath)) {
                 Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Block file '$record' not found at '$targetPath'");
                 sendJsonResponse(false, "Plik blokady '$record' nie istnieje", null, 404);

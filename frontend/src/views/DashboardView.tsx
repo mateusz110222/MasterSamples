@@ -660,8 +660,8 @@ export const DashboardView: React.FC = () => {
                                                                 setResetTypeChoice('all');
                                                                 setResetTarget({ units: [m.unit], unitNames: m.unit });
                                                             }}
-                                                            disabled={isDead}
-                                                            title={t.actionReset || 'Reset liczników'}
+                                                            disabled={!canEdit || isDead}
+                                                            title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionReset || 'Reset liczników')}
                                                             aria-label={`Reset: ${m.unit}`}
                                                             className="rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                         >
@@ -674,9 +674,10 @@ export const DashboardView: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setBlockTarget({ units: [m.unit], block: false })}
-                                                                title={t.actionActivateConfirm || 'Odblokuj'}
+                                                                disabled={!canEdit}
+                                                                title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionActivateConfirm || 'Odblokuj')}
                                                                 aria-label={`Odblokuj: ${m.unit}`}
-                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                             >
                                                                 <ShieldCheck size={16} />
                                                                 <span className="text-[0.625rem] font-bold uppercase">{t.actionActivateConfirm || 'ODBLOKUJ'}</span>
@@ -685,9 +686,10 @@ export const DashboardView: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setBlockTarget({ units: [m.unit], block: true })}
-                                                                title={t.actionBlockConfirm || 'Zablokuj'}
+                                                                disabled={!canEdit}
+                                                                title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionBlockConfirm || 'Zablokuj')}
                                                                 aria-label={`Zablokuj: ${m.unit}`}
-                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer"
+                                                                className="inline-flex items-center gap-1.5 rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                             >
                                                                 <ShieldAlert size={16} />
                                                                 <span className="text-[0.625rem] font-bold uppercase">{t.actionBlockConfirm || 'ZABLOKUJ'}</span>
@@ -697,9 +699,10 @@ export const DashboardView: React.FC = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => setDeleteTarget(m)}
-                                                            title={t.actionDeleteConfirm || 'Usuń z ewidencji'}
+                                                            disabled={!canEdit}
+                                                            title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionDeleteConfirm || 'Usuń z ewidencji')}
                                                             aria-label={`Usuń z ewidencji: ${m.unit}`}
-                                                            className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 hover:border-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer"
+                                                            className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 hover:border-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                         >
                                                             <Trash2 size={16} />
                                                             <span className="text-[0.625rem] font-bold uppercase">{t.actionDeleteConfirm || 'USUŃ Z EWIDENCJI'}</span>

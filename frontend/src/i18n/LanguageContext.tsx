@@ -227,6 +227,27 @@ const translations = {
         deleteMailConfirm: 'Czy na pewno chcesz usunąć ten adres e-mail z książki adresowej?',
         sidebarAuthorRole: 'Stworzone przez',
         sidebarAuthorLabel: 'Autor Aplikacji',
+
+        // Login & Auth
+        loginTitle: 'LOGOWANIE',
+        loginSubtitle: 'Domenowe uwierzytelnienie LDAP (Active Directory)',
+        loginUsernameLabel: 'Użytkownik domenowy',
+        loginUsernamePlaceholder: 'Wpisz identyfikator domenowy (np. jkowalski)',
+        loginPasswordLabel: 'Hasło domenowe',
+        loginPasswordPlaceholder: 'Wpisz hasło',
+        loginShowPassword: 'Pokaż hasło',
+        loginHidePassword: 'Ukryj hasło',
+        loginBtn: 'ZALOGUJ SIĘ',
+        loginBtnAuthenticating: 'Uwierzytelnianie...',
+        loginOrDivider: 'LUB',
+        loginGuestTitle: 'TRYB GOŚCIA',
+        loginGuestDesc: 'Dostęp w trybie tylko do odczytu - przeglądanie bazy masterów oraz eksport raportów bez uprawnień edycji.',
+        loginGuestBtn: 'KONTYNUUJ JAKO GOŚĆ',
+        loginErrorTitle: 'Błąd logowania',
+        logoutBtn: 'Wyloguj',
+        loginActionHeader: 'Zaloguj się',
+        guestBadge: 'GOŚĆ',
+        readOnlyTooltip: 'Wymagane uprawnienia do edycji (zaloguj się jako uprawniony pracownik)',
     },
     EN: {
         // Navigation
@@ -450,6 +471,27 @@ const translations = {
         deleteMailConfirm: 'Are you sure you want to remove this email contact from the directory?',
         sidebarAuthorRole: 'Created by',
         sidebarAuthorLabel: 'Application Author',
+
+        // Login & Auth
+        loginTitle: 'LOGIN',
+        loginSubtitle: 'Active Directory domain authentication (LDAP)',
+        loginUsernameLabel: 'Domain Username',
+        loginUsernamePlaceholder: 'Enter domain account (e.g. jdoe)',
+        loginPasswordLabel: 'Domain Password',
+        loginPasswordPlaceholder: 'Enter password',
+        loginShowPassword: 'Show password',
+        loginHidePassword: 'Hide password',
+        loginBtn: 'LOG IN',
+        loginBtnAuthenticating: 'Authenticating...',
+        loginOrDivider: 'OR',
+        loginGuestTitle: 'GUEST MODE',
+        loginGuestDesc: 'Read-only access - view golden samples and export reports without editing permissions.',
+        loginGuestBtn: 'CONTINUE AS GUEST',
+        loginErrorTitle: 'Login Failed',
+        logoutBtn: 'Log Out',
+        loginActionHeader: 'Log In',
+        guestBadge: 'GUEST',
+        readOnlyTooltip: 'Edit permissions required (please log in with an authorized account)',
     }
 };
 

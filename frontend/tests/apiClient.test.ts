@@ -129,6 +129,13 @@ test('FIS operations target the selected host and include the FIS value', async 
             'http://plblofis2.global.borgwarner.net/custom/matz/php/MasterDashboard.php?job=DeleteMaster',
         );
         assert.deepEqual(JSON.parse(requestedBody), { unit: 'TEST-001', fis: 'FIS2' });
+
+        await masterApi.deleteMaster('TEST-001', 'FIS1', { fisOnly: true });
+        assert.equal(
+            requestedUrl,
+            'http://plblofis1.global.borgwarner.net/custom/matz/php/MasterDashboard.php?job=DeleteMaster',
+        );
+        assert.deepEqual(JSON.parse(requestedBody), { unit: 'TEST-001', fis: 'FIS1', fisOnly: true });
     } finally {
         globalThis.fetch = originalFetch;
         globalThis.window = originalWindow;
@@ -165,8 +172,9 @@ test('session user, name, and groups are forwarded in headers and payload', asyn
         });
 
         assert.equal(sentHeaders['X-User'], 'matzielinski');
-        assert.equal(sentHeaders['X-User-Name'], 'Mateusz Zieliński');
-        assert.equal(sentHeaders['X-User-Groups'], 'golden_samples,testeng');
+        assert.equal(sentHeaders['X-User-Name'], encodeURIComponent('Mateusz Zieliński'));
+        assert.equal(decodeURIComponent(sentHeaders['X-User-Name']), 'Mateusz Zieliński');
+        assert.equal(sentHeaders['X-User-Groups'], 'golden_samples%2Ctesteng');
         assert.equal(sentBody.user, 'matzielinski');
         assert.equal(sentBody.userName, 'Mateusz Zieliński');
         assert.deepEqual(sentBody.userGroups, ['golden_samples', 'testeng']);

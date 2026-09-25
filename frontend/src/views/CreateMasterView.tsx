@@ -2,7 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { fisApi } from '../api/fisApi';
-import { masterApi, CreateMasterPayload, FisTarget } from '../api/masterApi';
+import { masterApi, CreateMasterPayload, FisTarget, normalizeFisTarget } from '../api/masterApi';
 import type { MasterUnit, ProcessTagItem } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
@@ -215,7 +215,14 @@ export const CreateMasterView: React.FC = () => {
     }, [processTags, multiSearchQuery]);
 
     const createMutation = useMutation({
-        mutationFn: (payload: CreateMasterPayload) => masterApi.createMaster(payload),
+        mutationFn: async (payload: CreateMasterPayload & { oldFis?: FisTarget }) => {
+            const { oldFis, ...createPayload } = payload;
+            if (createPayload.forceUpdate && oldFis && oldFis !== createPayload.fis) {
+                // Delete from the old FIS server first
+                await masterApi.deleteMaster(createPayload.unit, oldFis, { fisOnly: true });
+            }
+            return masterApi.createMaster(createPayload);
+        },
         onSuccess: (res, variables) => {
             if (res.data?.exists && !variables.forceUpdate) {
                 setExistingModalData({
@@ -226,7 +233,11 @@ export const CreateMasterView: React.FC = () => {
             }
 
             if (res.status) {
-                setFeedback({ type: 'success', message: res.message || 'Master został pomyślnie zapisany w systemie!' });
+                const isMigration = variables.forceUpdate && variables.oldFis && variables.oldFis !== variables.fis;
+                const successMsg = isMigration
+                    ? `Master '${variables.unit}' został pomyślnie usunięty z ${variables.oldFis}, zarejestrowany w ${variables.fis} i zaktualizowany!`
+                    : (res.message || 'Master został pomyślnie zapisany w systemie!');
+                setFeedback({ type: 'success', message: successMsg });
                 void queryClient.invalidateQueries({ queryKey: ['masters'] });
                 setExistingModalData(null);
                 // Reset form
@@ -261,6 +272,10 @@ export const CreateMasterView: React.FC = () => {
             return;
         }
 
+        const oldFis = (forceUpdate && existingModalData?.oldData?.FIS)
+            ? normalizeFisTarget(existingModalData.oldData.FIS)
+            : undefined;
+
         createMutation.mutate({
             unit: sn,
             process: proc,
@@ -268,7 +283,8 @@ export const CreateMasterView: React.FC = () => {
             maxCounter: Number(maxCounter) || 1000,
             maxErrors: Number(maxErrors) || 50,
             fis: selectedFis,
-            forceUpdate
+            forceUpdate,
+            oldFis,
         });
     };
 
@@ -710,6 +726,14 @@ export const CreateMasterView: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {existingModalData.oldData.FIS && existingModalData.newData.FIS && normalizeFisTarget(existingModalData.oldData.FIS) !== normalizeFisTarget(existingModalData.newData.FIS) && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300">
+                                <strong>Zmiana serwera FIS:</strong> Master zostanie automatycznie usunięty z serwera{' '}
+                                <span className="font-mono font-bold">{existingModalData.oldData.FIS}</span> i zarejestrowany na{' '}
+                                <span className="font-mono font-bold">{existingModalData.newData.FIS}</span>.
+                            </div>
+                        )}
 
                         <div className="flex justify-end gap-3 pt-2">
                             <button

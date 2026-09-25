@@ -9,6 +9,8 @@ import { CreateMasterView } from './views/CreateMasterView';
 import { BlockedMachinesView } from './views/BlockedMachinesView';
 import { EngineersView } from './views/EngineersView';
 import { HistoryView } from './views/HistoryView';
+import { LoginView } from './views/LoginView';
+import { RequireAuth } from './auth/RequireAuth';
 import { RequireEdit } from './auth/RequireEdit';
 
 const queryClient = new QueryClient({
@@ -28,14 +30,21 @@ export const App: React.FC = () => {
                 <AuthProvider>
                     <Router>
                         <Routes>
-                            <Route path="/" element={<MainLayout />}>
-                                <Route index element={<DashboardView />} />
-                                <Route path="create" element={<RequireEdit><CreateMasterView /></RequireEdit>} />
-                                <Route path="blocked-machines" element={<BlockedMachinesView />} />
-                                <Route path="admin/processes" element={<RequireEdit><EngineersView /></RequireEdit>} />
-                                <Route path="history" element={<HistoryView />} />
-                                <Route path="*" element={<Navigate to="/" replace />} />
+                            <Route path="/login" element={<LoginView />} />
+                            <Route
+                                element={
+                                    <RequireAuth>
+                                        <MainLayout />
+                                    </RequireAuth>
+                                }
+                            >
+                                <Route path="/" element={<DashboardView />} />
+                                <Route path="/create" element={<RequireEdit><CreateMasterView /></RequireEdit>} />
+                                <Route path="/blocked-machines" element={<BlockedMachinesView />} />
+                                <Route path="/admin/processes" element={<RequireEdit><EngineersView /></RequireEdit>} />
+                                <Route path="/history" element={<HistoryView />} />
                             </Route>
+                            <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                     </Router>
                 </AuthProvider>

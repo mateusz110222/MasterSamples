@@ -1,12 +1,74 @@
-import { apiRequest, ROUTER_API_BASE, AUTH_API_BASE, API_BASE, setSessionUser } from './client';
+import { apiRequest, ROUTER_API_BASE, API_BASE, setSessionUser, clearSessionUser } from './client';
 import { UserInfo, ProcessTagItem } from '../types';
 
 interface UserInfoPayload {
     userId?: string;
     name?: string;
     email?: string;
+    department?: string;
     groups?: unknown;
     canEdit?: unknown;
+}
+
+export const AUTH_STORAGE_KEY = 'master_dashboard_user_session';
+
+export interface StoredSession {
+    user: UserInfo;
+    token?: string;
+    expiresAt?: string;
+}
+
+export function saveStoredSession(session: StoredSession): void {
+    try {
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+        if (session.user.uid) {
+            setSessionUser(session.user.uid, session.user.name, session.user.groups);
+        } else {
+            clearSessionUser();
+        }
+    } catch (e) {
+        console.warn('Could not save session to localStorage', e);
+    }
+}
+
+export function loadStoredSession(): StoredSession | null {
+    try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as StoredSession;
+        if (!parsed || !parsed.user) {
+            localStorage.removeItem(AUTH_STORAGE_KEY);
+            return null;
+        }
+        if (!parsed.user.uid || parsed.user.name === 'Gość') {
+            parsed.user.isGuest = true;
+        }
+        if (parsed.expiresAt) {
+            const exp = Date.parse(parsed.expiresAt);
+            if (Number.isFinite(exp) && exp <= Date.now()) {
+                localStorage.removeItem(AUTH_STORAGE_KEY);
+                clearSessionUser();
+                return null;
+            }
+        }
+        if (parsed.user.uid) {
+            setSessionUser(parsed.user.uid, parsed.user.name, parsed.user.groups);
+        } else {
+            clearSessionUser();
+        }
+        return parsed;
+    } catch {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        clearSessionUser();
+        return null;
+    }
+}
+
+export function removeStoredSession(): void {
+    try {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {}
+    clearSessionUser();
 }
 
 const normalizeProcessTag = (item: unknown): ProcessTagItem => {
@@ -49,62 +111,72 @@ export const fisApi = {
         return list.map(normalizeProcessTag).filter(item => item.key !== '');
     },
 
-    getCurrentUser: async (): Promise<UserInfo> => {
-        let cleanUid = '';
-
-        // 1. Fetch authenticated userId from /custom/auth/GetUserName.php
-        try {
-            const res = await fetch(AUTH_API_BASE);
-            if (res.ok) {
-                const data = await res.json();
-                cleanUid = data?.user || '';
+    login: async (login: string, password: string): Promise<UserInfo> => {
+        const res = await apiRequest<UserInfoPayload & { token?: string; expires_at?: string }>(
+            API_BASE,
+            { job: 'Login' },
+            {
+                method: 'POST',
+                body: JSON.stringify({ login, password }),
             }
-        } catch (e) {
-            console.warn('[Auth] Could not reach GetUserName.php', e);
+        );
+
+        if (!res.status || !res.data) {
+            throw new Error(res.message || 'Błąd autoryzacji');
         }
 
-        setSessionUser(cleanUid, cleanUid ? undefined : 'Gość', []);
-
-        if (!cleanUid) {
-            return {
-                uid: '',
-                name: 'Gość',
-                email: '',
-                groups: [],
-                canEdit: false,
-                isGuest: true
-            };
-        }
-
-        // 2. Fetch full user info and permissions directly from the database via MasterDashboard.php?job=GetUserInfo
-        try {
-            const infoRes = await apiRequest<UserInfoPayload>(API_BASE, { job: 'GetUserInfo', userId: cleanUid });
-            if (infoRes && infoRes.status && infoRes.data) {
-                const d = infoRes.data;
-                const groups: string[] = Array.isArray(d.groups) ? d.groups : [];
-                const fullName = d.name || cleanUid;
-                setSessionUser(cleanUid, fullName, groups);
-                return {
-                    uid: d.userId || cleanUid,
-                    name: fullName,
-                    email: d.email || '',
-                    groups,
-                    canEdit: Boolean(d.canEdit),
-                    isGuest: false
-                };
-            }
-        } catch (e) {
-            console.warn('[Auth] Could not fetch user details from the database', e);
-        }
-
-        setSessionUser(cleanUid, cleanUid, []);
-        return {
+        const d = res.data;
+        let rawUid = (d.userId || login).trim();
+        if (rawUid.includes('\\')) rawUid = rawUid.split('\\').pop() || rawUid;
+        if (rawUid.includes('@')) rawUid = rawUid.split('@')[0];
+        const cleanUid = rawUid.trim();
+        const fullName = d.name || cleanUid;
+        const groups: string[] = Array.isArray(d.groups) ? (d.groups as string[]) : [];
+        const user: UserInfo = {
             uid: cleanUid,
-            name: cleanUid,
+            name: fullName,
+            email: d.email || '',
+            department: d.department || '',
+            groups,
+            canEdit: Boolean(d.canEdit),
+            isGuest: false,
+        };
+
+        saveStoredSession({
+            user,
+            token: d.token,
+            expiresAt: d.expires_at,
+        });
+
+        return user;
+    },
+
+    loginAsGuest: (): UserInfo => {
+        const guestUser: UserInfo = {
+            uid: '',
+            name: 'Gość',
             email: '',
             groups: [],
             canEdit: false,
-            isGuest: true
+            isGuest: true,
         };
+
+        saveStoredSession({
+            user: guestUser,
+        });
+
+        return guestUser;
+    },
+
+    logout: (): void => {
+        removeStoredSession();
+    },
+
+    getCurrentUser: async (): Promise<UserInfo | null> => {
+        const stored = loadStoredSession();
+        if (stored) {
+            return stored.user;
+        }
+        return null;
     }
 };

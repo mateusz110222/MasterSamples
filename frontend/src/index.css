@@ -447,6 +447,50 @@ html:has(.staff-screen) {
   transform: scale(0.96);
 }
 
+/* Login View animations & effects matching PalletX */
+@keyframes ui-enter {
+  from {
+    opacity: var(--ui-enter-opacity, 0);
+    transform: translate(
+      var(--ui-enter-translate-x, 0),
+      var(--ui-enter-translate-y, 0)
+    ) scale(var(--ui-enter-scale, 1));
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.login-card-enter {
+  --ui-enter-opacity: 0;
+  --ui-enter-translate-y: 22px;
+  --ui-enter-scale: 0.97;
+  animation: ui-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.login-fields-enter {
+  --ui-enter-opacity: 0;
+  --ui-enter-translate-y: 8px;
+  --ui-enter-scale: 1;
+  animation: ui-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes login-glow-drift {
+  50% { transform: translate(var(--glow-x), var(--glow-y)) scale(1.06); }
+}
+
+.login-glow-primary {
+  --glow-x: 28px;
+  --glow-y: 18px;
+  animation: login-glow-drift 13s ease-in-out infinite;
+}
+
+.login-glow-secondary {
+  --glow-x: -24px;
+  --glow-y: -16px;
+  animation: login-glow-drift 15s ease-in-out 600ms infinite;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-page-enter,
@@ -457,7 +501,11 @@ html:has(.staff-screen) {
   .animate-drawer-in,
   .interactive-button,
   .hover-lift,
-  .interactive-pill {
+  .interactive-pill,
+  .login-card-enter,
+  .login-fields-enter,
+  .login-glow-primary,
+  .login-glow-secondary {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

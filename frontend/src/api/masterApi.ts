@@ -42,6 +42,10 @@ export interface CreateMasterResult {
     operation?: string;
 }
 
+export interface DeleteMasterOptions {
+    fisOnly?: boolean;
+}
+
 export const masterApi = {
     getMasters: async (filters: GetMastersFilters = {}): Promise<MasterUnit[]> => {
         const res = await apiRequest<MasterUnit[]>(API_BASE, { job: 'GetMasters', ...filters });
@@ -85,17 +89,25 @@ export const masterApi = {
         });
     },
 
-    deleteMaster: async (unit: string, fis: FisTarget): Promise<ApiResponse<{ affected_rows: number; fis_deleted: boolean }>> => {
+    deleteMaster: async (
+        unit: string,
+        fis: FisTarget,
+        options?: DeleteMasterOptions,
+    ): Promise<ApiResponse<{ affected_rows?: number; fis_deleted: boolean; fis_only?: boolean }>> => {
         const session = getSessionUser();
+        const payload: Record<string, unknown> = {
+            unit,
+            fis,
+            user: session.uid || undefined,
+            userName: session.name || undefined,
+            userGroups: session.groups.length > 0 ? session.groups : undefined,
+        };
+        if (options?.fisOnly) {
+            payload.fisOnly = true;
+        }
         return apiRequest(getCreateMasterUrl(fis), { job: 'DeleteMaster' }, {
             method: 'POST',
-            body: JSON.stringify({
-                unit,
-                fis,
-                user: session.uid || undefined,
-                userName: session.name || undefined,
-                userGroups: session.groups.length > 0 ? session.groups : undefined,
-            }),
+            body: JSON.stringify(payload),
         });
     },
 

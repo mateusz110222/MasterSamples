@@ -64,6 +64,7 @@ export interface UserInfo {
     uid: string;
     name: string;
     email?: string;
+    department?: string;
     groups: string[];
     canEdit: boolean;
     isGuest?: boolean;

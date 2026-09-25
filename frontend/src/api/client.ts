@@ -2,7 +2,6 @@ import type { ApiResponse } from '../types';
 
 export const API_BASE = '/custom/matz/php/MasterDashboard.php';
 export const ROUTER_API_BASE = '/custom/matz/phpBB/router.php';
-export const AUTH_API_BASE = '/custom/auth/GetUserName.php';
 
 export class ApiError extends Error {
     readonly statusCode: number;
@@ -25,7 +24,10 @@ let cachedSessionUserName = '';
 let cachedSessionGroups: string[] = [];
 
 export function setSessionUser(uid: string, name?: string, groups?: string[]): void {
-    cachedSessionUser = uid.trim();
+    let cleanUid = uid.trim();
+    if (cleanUid.includes('\\')) cleanUid = cleanUid.split('\\').pop() || cleanUid;
+    if (cleanUid.includes('@')) cleanUid = cleanUid.split('@')[0];
+    cachedSessionUser = cleanUid.trim();
     if (name !== undefined) {
         cachedSessionUserName = name.trim();
     }
@@ -34,12 +36,22 @@ export function setSessionUser(uid: string, name?: string, groups?: string[]): v
     }
 }
 
+export function clearSessionUser(): void {
+    cachedSessionUser = '';
+    cachedSessionUserName = '';
+    cachedSessionGroups = [];
+}
+
 export function getSessionUser(): { uid: string; name: string; groups: string[] } {
     return {
         uid: cachedSessionUser,
         name: cachedSessionUserName,
         groups: cachedSessionGroups,
     };
+}
+
+function toSafeHeaderValue(val: string): string {
+    return encodeURIComponent(val.trim());
 }
 
 export async function apiRequest<T = unknown>(
@@ -58,13 +70,13 @@ export async function apiRequest<T = unknown>(
 
     const userHeaders: Record<string, string> = {};
     if (cachedSessionUser) {
-        userHeaders['X-User'] = cachedSessionUser;
-    }
-    if (cachedSessionUserName) {
-        userHeaders['X-User-Name'] = cachedSessionUserName;
-    }
-    if (cachedSessionGroups.length > 0) {
-        userHeaders['X-User-Groups'] = cachedSessionGroups.join(',');
+        userHeaders['X-User'] = toSafeHeaderValue(cachedSessionUser);
+        if (cachedSessionUserName) {
+            userHeaders['X-User-Name'] = toSafeHeaderValue(cachedSessionUserName);
+        }
+        if (cachedSessionGroups.length > 0) {
+            userHeaders['X-User-Groups'] = toSafeHeaderValue(cachedSessionGroups.join(','));
+        }
     }
 
     const response = await fetch(urlObj.toString(), {

@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { Menu, UserCheck } from 'lucide-react';
+import { Menu, UserCheck, LogOut, LogIn, UserX } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { useLanguage } from '../../i18n/useLanguage';
 
 export const MainLayout: React.FC = () => {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const location = useLocation();
-    const { user, canEdit } = useAuth();
+    const navigate = useNavigate();
+    const { user, canEdit, isGuest, logout } = useAuth();
     const { language, setLanguage, t } = useLanguage();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
+
+    const handleGoToLogin = () => {
+        logout();
+        navigate('/login');
+    };
 
     const getPageDetails = (pathname: string) => {
         switch (pathname) {
@@ -94,23 +105,57 @@ export const MainLayout: React.FC = () => {
                         </div>
 
                         {user && (
-                            <div className="flex min-w-0 max-w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface px-4 py-2">
-                                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-brand-accent/30 bg-brand-accent/15 text-xs font-bold text-brand-accent">
-                                    <UserCheck size={16} />
+                            <div className="flex min-w-0 max-w-full items-center gap-2">
+                                <div className="flex min-w-0 max-w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface px-4 py-2">
+                                    <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
+                                        isGuest
+                                            ? 'border-amber-500/30 bg-amber-500/15 text-amber-400'
+                                            : 'border-brand-accent/30 bg-brand-accent/15 text-brand-accent'
+                                    }`}>
+                                        {isGuest ? <UserX size={16} /> : <UserCheck size={16} />}
+                                    </div>
+                                    <div className="min-w-0 break-words text-left">
+                                        <p className="flex items-center gap-1.5 text-xs font-black leading-tight text-brand-text">
+                                            <span>{user.name || user.uid || t.guestBadge}</span>
+                                            {canEdit ? (
+                                                <span className="rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
+                                                    ADMIN
+                                                </span>
+                                            ) : isGuest ? (
+                                                <span className="rounded border border-amber-500/30 bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
+                                                    {t.guestBadge}
+                                                </span>
+                                            ) : null}
+                                        </p>
+                                        <p className="font-mono text-[10px] leading-tight text-brand-text-muted">
+                                            {isGuest
+                                                ? t.loginGuestTitle
+                                                : (user.email || (user.groups && user.groups.length > 0 ? user.groups.slice(0, 2).join(', ') : 'BLN - Production QA'))}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="min-w-0 break-words text-left">
-                                    <p className="flex items-center gap-1.5 text-xs font-black leading-tight text-brand-text">
-                                        <span>{user.name || user.uid}</span>
-                                        {canEdit && (
-                                            <span className="rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
-                                                ADMIN
-                                            </span>
-                                        )}
-                                    </p>
-                                    <p className="font-mono text-[10px] leading-tight text-brand-text-muted">
-                                        {user.email || (user.groups && user.groups.length > 0 ? user.groups.slice(0, 2).join(', ') : 'BLN - Production QA')}
-                                    </p>
-                                </div>
+
+                                {isGuest ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleGoToLogin}
+                                        title={t.loginActionHeader}
+                                        className="flex items-center gap-1.5 rounded-xl border border-brand-accent/40 bg-brand-accent/15 hover:bg-brand-accent hover:text-brand-text px-3 py-2 text-xs font-bold text-brand-accent transition-all cursor-pointer"
+                                    >
+                                        <LogIn size={15} />
+                                        <span className="hidden sm:inline">{t.loginActionHeader}</span>
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleLogout}
+                                        title={t.logoutBtn}
+                                        className="flex items-center gap-1.5 rounded-xl border border-brand-border bg-brand-surface hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 px-3 py-2 text-xs font-bold text-brand-text-muted transition-all cursor-pointer"
+                                    >
+                                        <LogOut size={15} />
+                                        <span className="hidden sm:inline">{t.logoutBtn}</span>
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
