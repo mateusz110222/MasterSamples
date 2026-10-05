@@ -28,6 +28,9 @@ interface DashboardModalsProps {
     closeHistory: () => void;
     history: HistoryRecord[];
     historyLoading: boolean;
+    historyError: string | null;
+    historyFetching: boolean;
+    retryHistory: () => void;
 }
 
 const ModalActions = ({
@@ -92,7 +95,20 @@ export const DashboardModals = ({
     closeHistory,
     history,
     historyLoading,
+    historyError,
+    historyFetching,
+    retryHistory,
 }: DashboardModalsProps) => {
+    const operationLabels: Record<string, string> = {
+        Create: t.opCreate,
+        Update: t.opUpdate,
+        Reset: t.opReset,
+        ResetCycles: t.opResetCycles,
+        ResetErrors: t.opResetErrors,
+        Block: t.opBlock,
+        Activate: t.opActivate,
+        Delete: t.opDelete,
+    };
     const resetOptions = [
         {
             value: 'all' as const,
@@ -196,7 +212,7 @@ export const DashboardModals = ({
                 isOpen={Boolean(blockTarget)}
                 onClose={closeBlock}
                 title={isBlock ? t.blockModalTitle : t.activateModalTitle}
-                description={`Zmiana stanu aktywności dla: ${blockTarget?.units.join(', ') ?? ''}`}
+                description={t.blockActivityDescription.replace('{units}', blockTarget?.units.join(', ') ?? '')}
             >
                 <div className="space-y-5">
                     {isBlock ? (
@@ -232,14 +248,14 @@ export const DashboardModals = ({
                 </div>
             </Modal>
 
-            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={`Fizyczne usunięcie rekordu: ${deleteTarget?.unit ?? ''}`}>
+            <Modal isOpen={Boolean(deleteTarget)} onClose={closeDelete} title={t.deleteModalTitle} description={t.physicalDeleteDescription.replace('{unit}', deleteTarget?.unit ?? '')}>
                 <div className="space-y-5">
                     <div className="flex items-start gap-3 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-rose-200 shadow-xs">
                         <AlertTriangle className="mt-0.5 shrink-0 text-rose-400" size={20} />
                         <div className="space-y-1">
                             <p className="text-sm font-bold text-rose-300 tracking-tight">{t.deleteModalWarning}</p>
                             <p className="text-[13px] leading-relaxed text-rose-100/90 font-medium">
-                                Rekord <strong className="font-mono text-white underline font-bold">{deleteTarget?.unit}</strong> {t.deleteModalText}
+                                {t.recordLabel} <strong className="font-mono text-white underline font-bold">{deleteTarget?.unit}</strong> {t.deleteModalText}
                             </p>
                         </div>
                     </div>
@@ -257,8 +273,16 @@ export const DashboardModals = ({
 
             <Modal isOpen={Boolean(historyTarget)} onClose={closeHistory} title={`${t.historyModalTitle} ${historyTarget?.unit ?? ''}`} description={t.historyModalSub} maxWidth="2xl">
                 <div className="space-y-4">
-                    {historyLoading ? (
-                        <div className="py-8 text-center font-mono text-xs text-brand-text-muted"><RefreshCw className="mr-2 inline-block animate-spin text-brand-accent" size={18} />Ładowanie historii zdarzeń...</div>
+                    {historyError ? (
+                        <div className="space-y-3 py-6 text-center">
+                            <p role="alert" className="text-sm text-rose-300">{historyError}</p>
+                            <button type="button" onClick={retryHistory} disabled={historyFetching} className="interactive-button inline-flex items-center gap-2 rounded-xl border border-brand-border px-4 py-2 text-sm disabled:opacity-50">
+                                <RefreshCw size={15} className={historyFetching ? 'animate-spin' : ''} />
+                                {t.refresh}
+                            </button>
+                        </div>
+                    ) : historyLoading ? (
+                        <div className="py-8 text-center font-mono text-xs text-brand-text-muted"><RefreshCw className="mr-2 inline-block animate-spin text-brand-accent" size={18} />{t.dashboardHistoryLoading}</div>
                     ) : history.length === 0 ? (
                         <p className="py-8 text-center text-sm text-brand-text-muted/70">{t.historyNoRecords} {historyTarget?.unit}.</p>
                     ) : (
@@ -271,7 +295,7 @@ export const DashboardModals = ({
                                     {history.map(record => (
                                         <tr key={record.id} className="hover:bg-brand-surface-high transition-colors duration-150">
                                             <td className="px-3 py-2 text-brand-text-muted">{record.date}</td>
-                                            <td className="px-3 py-2"><Badge variant={record.operation === 'Create' ? 'success' : record.operation.includes('Reset') ? 'warning' : ['Block', 'Delete'].includes(record.operation) ? 'danger' : 'info'}>{record.operation}</Badge></td>
+                                            <td className="px-3 py-2"><Badge variant={record.operation === 'Create' ? 'success' : record.operation.includes('Reset') ? 'warning' : ['Block', 'Delete'].includes(record.operation) ? 'danger' : 'info'}>{operationLabels[record.operation] ?? record.operation}</Badge></td>
                                             <td className="px-3 py-2">{record.status}</td><td className="px-3 py-2">{record.currentCounter} / {record.maxCounter}</td><td className="px-3 py-2">{record.errorCounter} / {record.errorMaxCounter}</td><td className="px-3 py-2 text-brand-text-muted">{record.user}</td>
                                         </tr>
                                     ))}
@@ -287,7 +311,7 @@ export const DashboardModals = ({
                                 rel="noopener noreferrer"
                                 className="interactive-button flex items-center gap-1.5 rounded-xl border border-brand-accent/40 bg-brand-accent/20 px-3.5 py-2 text-xs font-semibold text-indigo-300 hover:bg-brand-accent/35 hover:text-white hover:-translate-y-0.5 active:scale-95 transition-all duration-200"
                             >
-                                <span>Otwórz w FIS ({String(historyTarget.FIS).includes('2') ? 'FIS 2' : 'FIS 1'})</span>
+                                <span>{t.openInFis.replace('{fis}', String(historyTarget.FIS).includes('2') ? t.fis2Option : t.fis1Option)}</span>
                                 <ExternalLink size={13} />
                             </a>
                         )}

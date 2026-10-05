@@ -1,18 +1,20 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { MasterUnit, ResetType } from '../types';
 import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 import { DashboardModals } from '../components/dashboard/DashboardModals';
-import { getErrorMessage } from '../lib/errors';
+import { getLocalizedErrorMessage } from '../lib/errors';
 import { useMasterActions, useMasterHistoryQuery, useMastersQuery } from '../hooks/useMasters';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import {
     buildMastersCsv,
     downloadTextFile,
     filterMasters,
     getActivePercentage,
     matchesCurrentUser,
+    parsePaginationParams,
     sortMasters,
     splitProcesses,
     type MasterSortField,
@@ -42,25 +44,72 @@ import { useAdaptiveTableColumns } from '../hooks/useAdaptiveTableColumns';
 
 export const DashboardView: React.FC = () => {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { canEdit, user } = useAuth();
     const { language, t } = useLanguage();
     const isPl = language === 'PL';
 
-    // Filters matching PalletX
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedProcess, setSelectedProcess] = useState('');
-    const [selectedStatus, setSelectedStatus] = useState('');
-    const [selectedActive, setSelectedActive] = useState('all');
-    const [taskPreset, setTaskPreset] = useState<TaskPreset>('all');
-    const [pageSize, setPageSize] = useState<number>(50);
-    const [currentPage, setCurrentPage] = useState<number>(1);
-    const tableCardRef = useRef<HTMLDivElement>(null);
-    const tableBodyRef = useRef<HTMLTableSectionElement>(null);
-    const tableRef = useRef<HTMLTableElement>(null);
+    // Filters derived from searchParams as single source of truth
+    const urlSearch = searchParams.get('search') ?? searchParams.get('unit') ?? '';
+    const [searchTerm, setSearchTerm] = useState(urlSearch);
+    const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
+
+    const selectedProcess = searchParams.get('process') ?? '';
+    const selectedStatus = searchParams.get('status') ?? '';
+    const selectedActive = searchParams.get('active') ?? 'all';
+    const taskPreset = (searchParams.get('preset') as TaskPreset) || 'all';
+    const { page: currentPage, pageSize } = parsePaginationParams(searchParams);
+
+    // Synchronize local searchTerm when searchParams changes externally (e.g. navigation, back/forward)
+    useEffect(() => {
+        if (urlSearch !== searchTerm) {
+            setSearchTerm(urlSearch);
+        }
+    }, [urlSearch]);
+
+    // Helper to update any filter in searchParams
+    const updateFilters = (updates: Record<string, string | number | null | undefined>) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+
+            if ('search' in updates) {
+                next.delete('unit');
+            }
+
+            Object.entries(updates).forEach(([key, val]) => {
+                if (
+                    val === undefined ||
+                    val === null ||
+                    val === '' ||
+                    val === 'all' ||
+                    (key === 'page' && Number(val) <= 1) ||
+                    (key === 'pageSize' && Number(val) === 50)
+                ) {
+                    next.delete(key);
+                } else {
+                    next.set(key, String(val));
+                }
+            });
+
+            return next;
+        }, { replace: true });
+    };
+
+    // Debounce search input sync to searchParams
+    useEffect(() => {
+        const currentSearchInUrl = searchParams.get('search') ?? searchParams.get('unit') ?? '';
+        if (debouncedSearchTerm !== currentSearchInUrl) {
+            updateFilters({ search: debouncedSearchTerm, page: 1 });
+        }
+    }, [debouncedSearchTerm]);
 
     // Interactive column sorting
     const [sortField, setSortField] = useState<MasterSortField>('unit');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+    const tableCardRef = useRef<HTMLDivElement>(null);
+    const tableBodyRef = useRef<HTMLTableSectionElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
 
     // Modals
     const [resetTarget, setResetTarget] = useState<{ units: string[]; unitNames: string } | null>(null);
@@ -68,16 +117,16 @@ export const DashboardView: React.FC = () => {
     const [blockTarget, setBlockTarget] = useState<{ units: string[]; block: boolean } | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<MasterUnit | null>(null);
     const [historyTarget, setHistoryTarget] = useState<MasterUnit | null>(null);
-    const [actionError, setActionError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<unknown>(null);
 
     // Queries
     const { data: masters = [], isLoading, isFetching, refetch, error: mastersError } = useMastersQuery();
 
-    const { data: unitHistory = [], isLoading: historyLoading } = useMasterHistoryQuery(historyTarget?.unit);
+    const { data: unitHistory = [], isLoading: historyLoading, isFetching: historyFetching, error: historyError, refetch: refetchHistory } = useMasterHistoryQuery(historyTarget?.unit);
 
     const { resetMutation, blockMutation, deleteMutation } = useMasterActions({
         onMutate: () => setActionError(null),
-        onError: (error: unknown) => setActionError(getErrorMessage(error)),
+        onError: (error: unknown) => setActionError(error),
         onResetSuccess: () => setResetTarget(null),
         onBlockSuccess: () => setBlockTarget(null),
         onDeleteSuccess: () => setDeleteTarget(null),
@@ -127,14 +176,14 @@ export const DashboardView: React.FC = () => {
     const filteredMasters = useMemo(() => {
         return filterMasters(masters, {
             searchTerm,
-            process: selectedProcess,
-            status: selectedStatus,
-            activity: selectedActive,
-            taskPreset,
+            process: searchParams.get('process') ?? '',
+            status: searchParams.get('status') ?? '',
+            activity: searchParams.get('active') ?? 'all',
+            taskPreset: (searchParams.get('preset') as TaskPreset) || 'all',
             currentUser: user?.uid,
             currentUserName: user?.name,
         });
-    }, [masters, searchTerm, selectedProcess, selectedStatus, selectedActive, taskPreset, user?.uid, user?.name]);
+    }, [masters, searchParams, searchTerm, user?.uid, user?.name]);
 
     // Sorted data
     const sortedMasters = useMemo(() => {
@@ -150,18 +199,18 @@ export const DashboardView: React.FC = () => {
         const startIndex = (safeCurrentPage - 1) * pageSize;
         return sortedMasters.slice(startIndex, startIndex + pageSize);
     }, [sortedMasters, safeCurrentPage, pageSize]);
-    useAdaptiveTableColumns(tableRef, displayedMasters, 8, 1, language);
+    useAdaptiveTableColumns(tableRef, displayedMasters, 9, 1, language);
 
     const handlePageChange = (nextPage: number) => {
         if (nextPage === safeCurrentPage) return;
         tableBodyRef.current?.scrollTo({ top: 0 });
-        setCurrentPage(nextPage);
+        updateFilters({ page: nextPage });
         tableCardRef.current?.scrollIntoView({ block: 'start' });
     };
 
     const selectTaskPreset = (preset: TaskPreset) => {
-        setTaskPreset(current => current === preset && preset !== 'all' ? 'all' : preset);
-        setCurrentPage(1);
+        const nextPreset = taskPreset === preset && preset !== 'all' ? 'all' : preset;
+        updateFilters({ preset: nextPreset, page: 1 });
         tableBodyRef.current?.scrollTo({ top: 0 });
     };
 
@@ -177,11 +226,7 @@ export const DashboardView: React.FC = () => {
 
     const clearFilters = () => {
         setSearchTerm('');
-        setSelectedProcess('');
-        setSelectedStatus('');
-        setSelectedActive('all');
-        setTaskPreset('all');
-        setCurrentPage(1);
+        setSearchParams({}, { replace: true });
         tableBodyRef.current?.scrollTo({ top: 0 });
     };
 
@@ -197,7 +242,7 @@ export const DashboardView: React.FC = () => {
     return (
         <div className="space-y-5">
             <ErrorBanner
-                message={actionError ?? (mastersError ? getErrorMessage(mastersError, 'Nie udało się pobrać masterów.') : null)}
+                message={actionError ? getLocalizedErrorMessage(actionError, language, t.actionError) : mastersError ? getLocalizedErrorMessage(mastersError, language, t.mastersLoadError) : null}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
             />
             {/* Top Row: PalletX Stat Cards & Action Buttons */}
@@ -279,15 +324,18 @@ export const DashboardView: React.FC = () => {
                             type="text"
                             placeholder={t.searchPlaceholder}
                             value={searchTerm}
-                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full h-11 pl-10 pr-10 bg-brand-surface border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/20 font-mono transition-all duration-200"
                         />
                         {searchTerm && (
                             <button
                                 type="button"
-                                onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                                onClick={() => {
+                                    setSearchTerm('');
+                                    updateFilters({ search: '', page: 1 });
+                                }}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-brand-text-muted hover:text-white rounded-lg hover:bg-brand-surface-high transition-colors cursor-pointer"
-                                title="Wyczyść wyszukiwanie"
+                                title={t.clearSearch}
                             >
                                 <X size={15} />
                             </button>
@@ -305,7 +353,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedProcess}
-                        onChange={(e) => { setSelectedProcess(e.target.value); setCurrentPage(1); }}
+                        onChange={(e) => updateFilters({ process: e.target.value, page: 1 })}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedProcess
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -326,7 +374,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedStatus}
-                        onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
+                        onChange={(e) => updateFilters({ status: e.target.value, page: 1 })}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedStatus
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -334,8 +382,8 @@ export const DashboardView: React.FC = () => {
                         }`}
                     >
                         <option value="">{t.allStatuses}</option>
-                        <option value="GOOD">GOOD</option>
-                        <option value="BAD">BAD</option>
+                        <option value="GOOD">{t.goodStatusLabel}</option>
+                        <option value="BAD">{t.badStatusLabel}</option>
                     </select>
                 </div>
 
@@ -346,7 +394,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={selectedActive}
-                        onChange={(e) => { setSelectedActive(e.target.value); setCurrentPage(1); }}
+                        onChange={(e) => updateFilters({ active: e.target.value, page: 1 })}
                         className={`h-9 px-3 border rounded-xl text-xs font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-all duration-200 ${
                             selectedActive !== 'all'
                                 ? 'bg-indigo-950/40 border-brand-accent text-indigo-200 ring-1 ring-brand-accent/40 font-bold'
@@ -366,7 +414,7 @@ export const DashboardView: React.FC = () => {
                     </label>
                     <select
                         value={pageSize}
-                        onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                        onChange={(e) => updateFilters({ pageSize: Number(e.target.value), page: 1 })}
                         className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer transition-colors hover:border-brand-text-muted/50"
                     >
                         <option value={15}>15</option>
@@ -397,7 +445,7 @@ export const DashboardView: React.FC = () => {
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-2.5 shadow-md flex items-center gap-2 overflow-x-auto scrollbar-thin">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-brand-text-muted px-2 shrink-0 flex items-center gap-1.5">
                     <Filter size={13} className="text-brand-accent" />
-                    <span>Zadania:</span>
+                    <span>{t.tasksLabel}</span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-max">
                     {[
@@ -495,6 +543,12 @@ export const DashboardView: React.FC = () => {
                                             <span aria-hidden="true">{sortField === 'errorCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
                                         </button>
                                     </th>
+                                    <th aria-sort={sortField === 'globalCounter' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
+                                        <button type="button" onClick={() => handleSort('globalCounter')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
+                                            {t.thGlobal}
+                                            <span aria-hidden="true">{sortField === 'globalCounter' ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}</span>
+                                        </button>
+                                    </th>
                                     <th aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-6 py-3 text-[0.625rem] uppercase font-bold tracking-wider text-brand-text-muted">
                                         <button type="button" onClick={() => handleSort('status')} className="flex items-center gap-2 whitespace-nowrap cursor-pointer">
                                             {t.thStatus}
@@ -515,7 +569,7 @@ export const DashboardView: React.FC = () => {
                             <tbody ref={tableBodyRef} className="divide-y divide-brand-border">
                                 {isLoading ? (
                                     <tr>
-                                        <td colSpan={8} className="px-6 py-12 text-center text-brand-text-muted">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
                                                 <RefreshCw className="animate-spin text-brand-accent" size={18} />
                                                 <span>{t.loadingMasters}</span>
@@ -524,7 +578,7 @@ export const DashboardView: React.FC = () => {
                                     </tr>
                                 ) : displayedMasters.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="px-6 py-12 text-center text-brand-text-muted">
+                                        <td colSpan={9} className="px-6 py-12 text-center text-brand-text-muted">
                                             {t.noMastersFound}
                                         </td>
                                     </tr>
@@ -552,7 +606,7 @@ export const DashboardView: React.FC = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => setHistoryTarget(m)}
-                                                        title="Historia mastera"
+                                                        title={t.masterHistoryTitle}
                                                         className="w-max whitespace-nowrap text-brand-accent hover:text-brand-text hover:underline underline-offset-2 cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-brand-accent rounded px-1 -mx-1"
                                                     >
                                                         {m.unit}
@@ -621,6 +675,11 @@ export const DashboardView: React.FC = () => {
                                                     </div>
                                                 </td>
 
+                                                {/* Global Counter */}
+                                                <td className="px-6 py-4 font-mono text-xs tabular-nums text-brand-text whitespace-nowrap">
+                                                    {m.globalCounter ?? 0}
+                                                </td>
+
                                                 {/* Quality / Status: GOOD / BAD */}
                                                 <td className="px-6 py-4">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider font-mono border ${
@@ -646,8 +705,8 @@ export const DashboardView: React.FC = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => setHistoryTarget(m)}
-                                                            title={t.actionHistory || 'Historia zmian'}
-                                                            aria-label={`Historia: ${m.unit}`}
+                                                            title={t.actionHistory}
+                                                            aria-label={t.masterHistoryFor.replace('{unit}', m.unit)}
                                                             className="rounded-lg p-2 text-brand-text-muted hover:bg-brand-accent/10 hover:text-brand-accent transition-colors cursor-pointer"
                                                         >
                                                             <History size={16} />
@@ -661,8 +720,8 @@ export const DashboardView: React.FC = () => {
                                                                 setResetTarget({ units: [m.unit], unitNames: m.unit });
                                                             }}
                                                             disabled={!canEdit || isDead}
-                                                            title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionReset || 'Reset liczników')}
-                                                            aria-label={`Reset: ${m.unit}`}
+                                                            title={!canEdit ? t.readOnlyTooltip : t.actionReset}
+                                                            aria-label={t.resetFor.replace('{unit}', m.unit)}
                                                             className="rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                         >
                                                             <RotateCcw size={16} />
@@ -675,24 +734,24 @@ export const DashboardView: React.FC = () => {
                                                                 type="button"
                                                                 onClick={() => setBlockTarget({ units: [m.unit], block: false })}
                                                                 disabled={!canEdit}
-                                                                title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionActivateConfirm || 'Odblokuj')}
-                                                                aria-label={`Odblokuj: ${m.unit}`}
+                                                                title={!canEdit ? t.readOnlyTooltip : t.actionActivateConfirm}
+                                                                aria-label={t.unblockFor.replace('{unit}', m.unit)}
                                                                 className="inline-flex items-center gap-1.5 rounded-lg p-2 text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                             >
                                                                 <ShieldCheck size={16} />
-                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionActivateConfirm || 'ODBLOKUJ'}</span>
+                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionActivateConfirm}</span>
                                                             </button>
                                                         ) : (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setBlockTarget({ units: [m.unit], block: true })}
                                                                 disabled={!canEdit}
-                                                                title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionBlockConfirm || 'Zablokuj')}
-                                                                aria-label={`Zablokuj: ${m.unit}`}
+                                                                title={!canEdit ? t.readOnlyTooltip : t.actionBlockConfirm}
+                                                                aria-label={t.blockFor.replace('{unit}', m.unit)}
                                                                 className="inline-flex items-center gap-1.5 rounded-lg p-2 text-brand-text-muted hover:bg-amber-500/10 hover:text-amber-400 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                             >
                                                                 <ShieldAlert size={16} />
-                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionBlockConfirm || 'ZABLOKUJ'}</span>
+                                                                <span className="text-[0.625rem] font-bold uppercase">{t.actionBlockConfirm}</span>
                                                             </button>
                                                         )}
 
@@ -700,12 +759,12 @@ export const DashboardView: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setDeleteTarget(m)}
                                                             disabled={!canEdit}
-                                                            title={!canEdit ? (t.readOnlyTooltip || 'Wymagane uprawnienia do edycji') : (t.actionDeleteConfirm || 'Usuń z ewidencji')}
-                                                            aria-label={`Usuń z ewidencji: ${m.unit}`}
+                                                            title={!canEdit ? t.readOnlyTooltip : t.actionDeleteConfirm}
+                                                            aria-label={t.deleteFromRegistry.replace('{unit}', m.unit)}
                                                             className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 hover:border-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                                                         >
                                                             <Trash2 size={16} />
-                                                            <span className="text-[0.625rem] font-bold uppercase">{t.actionDeleteConfirm || 'USUŃ Z EWIDENCJI'}</span>
+                                                            <span className="text-[0.625rem] font-bold uppercase">{t.actionDeleteConfirm}</span>
                                                         </button>
                                                     </div>
                                                 </td>
@@ -744,6 +803,9 @@ export const DashboardView: React.FC = () => {
                 historyTarget={historyTarget}
                 closeHistory={() => setHistoryTarget(null)}
                 history={unitHistory}
+                historyError={historyError ? getLocalizedErrorMessage(historyError, language, t.historyLoadError) : null}
+                historyFetching={historyFetching}
+                retryHistory={() => { void refetchHistory(); }}
                 historyLoading={historyLoading}
             />
         </div>

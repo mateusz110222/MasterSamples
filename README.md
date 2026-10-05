@@ -39,9 +39,10 @@ Aplikacja składa się z dwóch niezależnych części:
    - Procedura FIS przed zapisem: `Unit::Find` $\rightarrow$ `Archive::GetAll` $\rightarrow$ `Archive::Unarchive` $\rightarrow$ `Unit::Delete` $\rightarrow$ `Unit::DataEntry`.
    - W przypadku istniejącego SN: automatyczne okno porównania starych i nowych parametrów z prośbą o zatwierdzenie aktualizacji.
 3. **Zablokowane Maszyny (`/blocked-machines`)**:
-   - Skanowanie katalogu `/fis/mantis/data/blocked_machines/`.
+   - Skanowanie katalogu `/fis/mantis/data/blocked_machines/` na FIS 1 i FIS 2, z kolumną serwera FIS.
    - Podział na maszynę i prefiks (`<machine>_<prefix>`), data zablokowania.
-   - Przycisk bezpiecznego odblokowania (usunięcie pliku za pomocą `unlink`).
+   - Odblokowanie usuwa plik przez endpoint serwera wskazanego w wierszu; identyczne nazwy na obu serwerach pozostają osobnymi wpisami.
+   - Błąd jednego FIS jest widoczny, a dane z drugiego nadal są wyświetlane.
 4. **Grupy Mailowe Inżynierów (`/admin/processes`)**:
    - Tabela `masterSample.engineers` (`id`, `process`, `mail`).
    - Edycja istniejących maili (z autouzupełnianiem znanych grup) oraz dodawanie nowych procesów.
@@ -52,6 +53,10 @@ Aplikacja składa się z dwóch niezależnych części:
 ---
 
 ## 🛠️ Uruchomienie Lokalne (Development)
+
+Moduł stacyjny Tcl **MasterCheck 1.3.0** oraz testy i instrukcja wdrożenia
+znajdują się w [`backend/tcl/README.md`](backend/tcl/README.md). Wymaga Tcl 8.6
+i dotychczasowych plików konfiguracji FIS; korzysta z globalnego `param`.
 
 Aplikację można uruchomić lokalnie przez Vite:
 
@@ -79,6 +84,16 @@ Wynik kompilacji znajdzie się w katalogu `frontend/dist/`:
 - `dist/assets/*.css`
 
 ### 2. Kopiowanie na Serwer
+Obsługa blokad FIS 2 wymaga wdrożenia również `backend/FIS2/MasterDashboard.php`
+na `plblofis2.global.borgwarner.net` pod `/custom/matz/php/MasterDashboard.php`.
+Ten endpoint obsługuje teraz `GetBlockedMachines` i `DeleteBlockedMachine`.
+
+Przed wdrożeniem zaktualizowanych backendów wykonaj jednorazowo w bazie
+`masterSample` migrację `backend/migrations/20260930_history_fis.sql`.
+Dodaje ona nullable kolumnę `history.FIS`. Nowe zdarzenia zapisują serwer FIS
+z rekordu mastera; stare wpisy pozostają bez tej informacji i bez linku do FIS,
+ponieważ aktualny serwer nie dowodzi lokalizacji jednostki w chwili zdarzenia.
+
 1. **Backend PHP**:
    Skopiuj plik `backend/MasterDashboard.php` do docelowego katalogu:
    `/custom/matz/php/MasterDashboard.php`
@@ -135,6 +150,7 @@ CREATE TABLE `history` (
   `errorCounter` int(11) DEFAULT NULL,
   `errorMaxCounter` int(11) DEFAULT NULL,
   `globalCounter` int(11) DEFAULT NULL,
+  `FIS` varchar(100) DEFAULT NULL,
   `user` varchar(100) DEFAULT NULL,
   `operation` varchar(50) DEFAULT NULL,
   `date` datetime DEFAULT CURRENT_TIMESTAMP,

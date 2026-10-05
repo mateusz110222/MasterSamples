@@ -26,9 +26,11 @@ export interface HistoryRecord {
     user: string;
     operation: 'Create' | 'Update' | 'Reset' | 'ResetCycles' | 'ResetErrors' | 'Block' | 'Activate' | 'Delete' | string;
     date: string;
+    FIS?: string | null;
 }
 
 export interface BlockedMachine {
+    FIS: FisTarget;
     id: string;
     filename: string;
     machine: string;
@@ -71,3 +73,4 @@ export interface UserInfo {
 }
 
 export type ResetType = 'all' | 'cycles' | 'errors';
+export type FisTarget = 'FIS1' | 'FIS2';

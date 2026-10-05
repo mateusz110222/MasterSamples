@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { blockedApi } from '../api/blockedApi';
-import { BlockedMachine } from '../types';
+import type { BlockedMachine, FisTarget } from '../types';
 import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
 import { Badge } from '../components/common/Badge';
 import { ErrorBanner } from '../components/common/ErrorBanner';
-import { getErrorMessage } from '../lib/errors';
+import { getLocalizedErrorMessage } from '../lib/errors';
 import {
     Trash2,
     RefreshCw,
@@ -17,28 +17,39 @@ import {
     ShieldAlert
 } from 'lucide-react';
 
+const fisTargets: FisTarget[] = ['FIS1', 'FIS2'];
+
 export const BlockedMachinesView: React.FC = () => {
     const { canEdit } = useAuth();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState('');
     const [deleteTarget, setDeleteTarget] = useState<BlockedMachine | null>(null);
-    const [actionError, setActionError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<unknown>(null);
 
-    const { data: machines = [], isLoading, isFetching, refetch, error: machinesError } = useQuery({
-        queryKey: ['blockedMachines'],
-        queryFn: () => blockedApi.getBlockedMachines(),
-        refetchInterval: 30000,
+    const machineQueries = useQueries({
+        queries: fisTargets.map(fis => ({
+            queryKey: ['blockedMachines', fis],
+            queryFn: () => blockedApi.getBlockedMachines(fis),
+            refetchInterval: 30000,
+        })),
     });
+    const machines = machineQueries.flatMap(query => query.data ?? []);
+    const isLoading = machineQueries.every(query => query.isPending);
+    const isFetching = machineQueries.some(query => query.isFetching);
+    const machinesError = machineQueries.map((query, index) => query.error
+        ? `${fisTargets[index]}: ${getLocalizedErrorMessage(query.error, language, t.blocksLoadError)}`
+        : '').filter(Boolean).join(' · ');
+    const refetch = () => Promise.all(machineQueries.map(query => query.refetch()));
 
     const deleteMutation = useMutation({
-        mutationFn: (filename: string) => blockedApi.deleteBlockedMachine(filename),
+        mutationFn: (machine: BlockedMachine) => blockedApi.deleteBlockedMachine(machine.filename, machine.FIS),
         onMutate: () => setActionError(null),
         onSuccess: () => {
             void queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
             setDeleteTarget(null);
         },
-        onError: (error: unknown) => setActionError(getErrorMessage(error)),
+        onError: (error: unknown) => setActionError(error),
     });
 
     const filteredMachines = useMemo(() => {
@@ -47,14 +58,15 @@ export const BlockedMachinesView: React.FC = () => {
         return machines.filter(m =>
             m.machine.toLowerCase().includes(s) ||
             m.prefix.toLowerCase().includes(s) ||
-            m.filename.toLowerCase().includes(s)
+            m.filename.toLowerCase().includes(s) ||
+            m.FIS.toLowerCase().includes(s)
         );
     }, [machines, searchTerm]);
 
     return (
         <div className="space-y-6">
             <ErrorBanner
-                message={actionError ?? (machinesError ? getErrorMessage(machinesError, 'Nie udało się pobrać blokad.') : null)}
+                message={actionError ? getLocalizedErrorMessage(actionError, language, t.actionError) : machinesError || null}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
             />
             {/* Header info banner */}
@@ -108,6 +120,7 @@ export const BlockedMachinesView: React.FC = () => {
                         <thead>
                             <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
                                 <th className="py-3.5 px-4 font-semibold">{t.blockedColMachine}</th>
+                                <th className="py-3.5 px-4 font-semibold">{t.thFis}</th>
                                 <th className="py-3.5 px-4 font-semibold">{t.blockedColPrefix}</th>
                                 <th className="py-3.5 px-4 font-semibold">{t.blockedColDate}</th>
                                 {canEdit && <th className="py-3.5 px-4 font-semibold text-right">{t.blockedColAction}</th>}
@@ -116,7 +129,7 @@ export const BlockedMachinesView: React.FC = () => {
                         <tbody className="divide-y divide-brand-border/60 text-brand-text font-mono text-xs">
                             {isLoading ? (
                                 <tr>
-                                    <td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">
+                                    <td colSpan={canEdit ? 5 : 4} className="py-12 text-center text-brand-text-muted">
                                         <div className="inline-flex items-center gap-2">
                                             <RefreshCw className="animate-spin text-brand-accent" size={18} />
                                             <span>{t.blockedLoadingText}</span>
@@ -124,12 +137,12 @@ export const BlockedMachinesView: React.FC = () => {
                                     </td>
                                 </tr>
                             ) : machinesError && machines.length === 0 ? (
-                                <tr><td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">{t.blockedLoadError}</td></tr>
+                                <tr><td colSpan={canEdit ? 5 : 4} className="py-12 text-center text-brand-text-muted">{t.blockedLoadError}</td></tr>
                             ) : filteredMachines.length === 0 && machines.length > 0 ? (
-                                <tr><td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted">{t.blockedNoMatches}</td></tr>
+                                <tr><td colSpan={canEdit ? 5 : 4} className="py-12 text-center text-brand-text-muted">{t.blockedNoMatches}</td></tr>
                             ) : filteredMachines.length === 0 ? (
                                 <tr>
-                                    <td colSpan={canEdit ? 4 : 3} className="py-12 text-center text-brand-text-muted/70 font-sans">
+                                    <td colSpan={canEdit ? 5 : 4} className="py-12 text-center text-brand-text-muted/70 font-sans">
                                         <div className="flex flex-col items-center gap-2 animate-scale-in">
                                             <CheckCircle2 className="text-emerald-500" size={28} />
                                             <span className="font-semibold text-brand-text">{t.blockedNoneTitle}</span>
@@ -140,12 +153,15 @@ export const BlockedMachinesView: React.FC = () => {
                             ) : (
                                 filteredMachines.map((m, idx) => (
                                     <tr
-                                        key={m.id}
+                                        key={`${m.FIS}:${m.filename}`}
                                         style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                                         className="animate-row-enter hover:bg-brand-surface-high transition-colors duration-150"
                                     >
                                         <td className="py-3.5 px-4 font-bold text-brand-text flex items-center gap-2">
                                             <span>{m.machine}</span>
+                                        </td>
+                                        <td className="py-3.5 px-4">
+                                            <Badge variant={m.FIS === 'FIS2' ? 'info' : 'neutral'}>{m.FIS}</Badge>
                                         </td>
                                         <td className="py-3.5 px-4">
                                             <Badge variant={m.prefix === 'MASTER' ? 'purple' : 'warning'}>
@@ -188,6 +204,10 @@ export const BlockedMachinesView: React.FC = () => {
                             <span className="text-sm font-bold text-brand-text">{deleteTarget?.machine}</span>
                         </div>
                         <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">{t.thFis}</span>
+                            <span className="text-sm font-mono font-bold text-brand-accent">{deleteTarget?.FIS}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">{t.blockedModalPrefix}</span>
                             <span className="text-sm font-mono font-bold text-brand-accent">{deleteTarget?.prefix}</span>
                         </div>
@@ -201,7 +221,7 @@ export const BlockedMachinesView: React.FC = () => {
                             {t.blockedModalCancel}
                         </button>
                         <button
-                            onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.filename)}
+                            onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
                             disabled={deleteMutation.isPending}
                             className="px-5 py-2.5 rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-brand-text text-sm font-bold shadow-[0_0_15px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
                         >

@@ -19,8 +19,7 @@ export const Pagination: React.FC<PaginationProps> = ({
     onPageChange,
     className = '',
 }) => {
-    const { language } = useLanguage();
-    const pl = language === 'PL';
+    const { t } = useLanguage();
 
     if (totalPages <= 0) return null;
     if (totalPages <= 1 && (totalItems === undefined || totalItems <= pageSize)) return null;
@@ -60,17 +59,15 @@ export const Pagination: React.FC<PaginationProps> = ({
     return (
         <nav
             className={`flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-brand-border bg-brand-surface/40 ${className}`}
-            aria-label="Pagination"
+            aria-label={t.paginationLabel}
         >
             {totalItems !== undefined && fromItem !== null && toItem !== null ? (
                 <div className="text-xs text-brand-text-muted font-medium">
-                    {pl
-                        ? `Wyświetlono ${fromItem}–${toItem} z ${totalItems}`
-                        : `Showing ${fromItem}–${toItem} of ${totalItems}`}
+                    {t.paginationItems.replace('{from}', String(fromItem)).replace('{to}', String(toItem)).replace('{total}', String(totalItems))}
                 </div>
             ) : (
                 <div className="text-xs text-brand-text-muted font-medium">
-                    {pl ? 'Strona' : 'Page'} {currentPage} {pl ? 'z' : 'of'} {totalPages}
+                    {t.page} {currentPage} {t.pageOf} {totalPages}
                 </div>
             )}
 
@@ -80,8 +77,8 @@ export const Pagination: React.FC<PaginationProps> = ({
                         type="button"
                         onClick={() => onPageChange(currentPage - 1)}
                         disabled={currentPage <= 1}
-                        title={pl ? 'Poprzednia' : 'Previous'}
-                        aria-label={pl ? 'Poprzednia' : 'Previous'}
+                        title={t.prevPage}
+                        aria-label={t.prevPage}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-brand-border bg-brand-bg text-brand-text-muted hover:border-brand-accent/40 hover:bg-brand-surface-high hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-40 transition-all active:scale-95 cursor-pointer"
                     >
                         <ChevronLeft size={16} />
@@ -106,7 +103,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                                 type="button"
                                 onClick={() => onPageChange(p)}
                                 aria-current={isActive ? 'page' : undefined}
-                                aria-label={`${pl ? 'Strona' : 'Page'} ${p}`}
+                                aria-label={`${t.page} ${p}`}
                                 className={`flex h-8 min-w-8 px-2 items-center justify-center rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                                     isActive
                                         ? 'border border-indigo-500 bg-indigo-500/30 text-indigo-200 shadow-sm'
@@ -122,8 +119,8 @@ export const Pagination: React.FC<PaginationProps> = ({
                         type="button"
                         onClick={() => onPageChange(currentPage + 1)}
                         disabled={currentPage >= totalPages}
-                        title={pl ? 'Następna' : 'Next'}
-                        aria-label={pl ? 'Następna' : 'Next'}
+                        title={t.nextPage}
+                        aria-label={t.nextPage}
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-brand-border bg-brand-bg text-brand-text-muted hover:border-brand-accent/40 hover:bg-brand-surface-high hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-40 transition-all active:scale-95 cursor-pointer"
                     >
                         <ChevronRight size={16} />

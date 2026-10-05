@@ -286,13 +286,51 @@ function getAuthenticatedUser(): string
 function getUserGroups(string $userId): array
 {
     $userId = cleanUsername($userId);
-    try {
-        $groups = Lib::GetUserGroup($userId);
-        return array_values(array_map('strval', $groups));
-    } catch (Throwable $error) {
-        Lib::ShowError(FILENAME, print_r($error, true));
-        return [];
+    $groups = [];
+    if ($userId !== '') {
+        try {
+            $dbGroups = Lib::GetUserGroup($userId);
+            if (is_array($dbGroups) && !empty($dbGroups)) {
+                $groups = array_values(array_map('strval', $dbGroups));
+            }
+        } catch (Throwable $error) {
+            Lib::ShowError(FILENAME, "Lib::GetUserGroup failed for '$userId': " . $error->getMessage());
+        }
     }
+
+    if (empty($groups) && !empty($_SERVER['HTTP_X_USER_GROUPS'])) {
+        $rawHeader = rawurldecode((string)$_SERVER['HTTP_X_USER_GROUPS']);
+        $parts = explode(',', $rawHeader);
+        foreach ($parts as $p) {
+            $trimmed = trim($p);
+            if ($trimmed !== '') {
+                $groups[] = $trimmed;
+            }
+        }
+    }
+
+    if (empty($groups)) {
+        $input = getRequestData();
+        $inputGroups = $input['userGroups'] ?? null;
+        if (is_array($inputGroups)) {
+            foreach ($inputGroups as $p) {
+                $trimmed = trim((string)$p);
+                if ($trimmed !== '') {
+                    $groups[] = $trimmed;
+                }
+            }
+        } elseif (is_string($inputGroups) && trim($inputGroups) !== '') {
+            $parts = explode(',', $inputGroups);
+            foreach ($parts as $p) {
+                $trimmed = trim($p);
+                if ($trimmed !== '') {
+                    $groups[] = $trimmed;
+                }
+            }
+        }
+    }
+
+    return array_values(array_unique($groups));
 }
 
 function requireWriteAccess(): string
@@ -517,8 +555,8 @@ try {
                         }
 
                         $stmtHist = $mysqli->prepare(
-                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
+                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, ?, NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
                         $stmtHist->bind_param('sss', $operatorName, $operationName, $unit);
@@ -579,8 +617,8 @@ try {
                 try {
                     foreach ($unitList as $unit) {
                         $stmtHist = $mysqli->prepare(
-                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Block', NOW()
+                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Block', NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
                         $stmtHist->bind_param('ss', $operatorName, $unit);
@@ -625,8 +663,8 @@ try {
                 try {
                     foreach ($unitList as $unit) {
                         $stmtHist = $mysqli->prepare(
-                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Activate', NOW()
+                            "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                             SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Activate', NOW()
                              FROM masterUnits WHERE unit = ?"
                         );
                         $stmtHist->bind_param('ss', $operatorName, $unit);
@@ -744,8 +782,8 @@ try {
                 $mysqli->begin_transaction();
                 try {
                     $stmtHist = $mysqli->prepare(
-                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Delete', NOW()
+                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Delete', NOW()
                          FROM masterUnits WHERE unit = ?"
                     );
                     $stmtHist->bind_param('ss', $user, $unit);
@@ -803,10 +841,25 @@ try {
             $user = requireWriteAccess();
             $unit = strtoupper(trim($input['unit'] ?? $input['serialNumber'] ?? ''));
             $processList = trim($input['process'] ?? $input['processName'] ?? '');
-            $status = strtoupper(trim($input['status'] ?? 'GOOD'));
-            $maxCounter = (int)($input['maxCounter'] ?? 1000);
-            $errorMaxCounter = (int)($input['maxErrors'] ?? $input['errorMaxCounter'] ?? 50);
+            $statusInput = $input['status'] ?? 'GOOD';
+            if (!is_string($statusInput)) {
+                sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
+            }
+            $status = strtoupper(trim($statusInput));
+            $maxCounter = filter_var($input['maxCounter'] ?? 1000, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1, 'max_range' => 2147483647],
+            ]);
+            $errorMaxCounter = filter_var($input['maxErrors'] ?? $input['errorMaxCounter'] ?? 50, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1, 'max_range' => 2147483647],
+            ]);
             $forceUpdate = !empty($input['forceUpdate']);
+
+            if (!in_array($status, ['GOOD', 'BAD'], true)) {
+                sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
+            }
+            if ($maxCounter === false || $errorMaxCounter === false) {
+                sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647.', null, 400);
+            }
 
             if ($unit === '' || $processList === '') {
                 Lib::ShowError(FILENAME, "[CreateMaster] Validation error: SN or process is empty (unit='$unit', process='$processList')");
@@ -819,7 +872,9 @@ try {
                 sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
 
-            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=" . ($forceUpdate ? '1' : '0') . ", user='$user'");
+            $userKey2 = trim((string)($input['userKey2'] ?? $input['userkey2'] ?? $input['pn'] ?? ''));
+
+            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=" . ($forceUpdate ? '1' : '0') . ", user='$user', userKey2='$userKey2'");
 
             $serverFis = getServerFis();
             if ($serverFis !== null && $serverFis !== $fisValue) {
@@ -855,6 +910,7 @@ try {
                             'maxCounter' => $maxCounter,
                             'errorMaxCounter' => $errorMaxCounter,
                             'FIS' => $fisValue,
+                            'userKey2' => $userKey2,
                         ]
                     ]);
                 }
@@ -920,7 +976,7 @@ try {
                         $dcmods,
                         "GOLD",
                         "",
-                        "",
+                        $userKey2,
                         "GOLDEN"
                     );
                     Lib::ShowDebug(FILENAME, "[CreateMaster] Unit::DataEntry succeeded for '$unit'");
@@ -972,9 +1028,9 @@ try {
 
                     $operation = $existing ? 'Update' : 'Create';
                     $sqlHist = "INSERT INTO history
-                                    (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
+                                    (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
                                 SELECT
-                                    unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
+                                    unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, ?, NOW()
                                 FROM masterUnits WHERE unit = ?";
                     $stmtHist = $mysqli->prepare($sqlHist);
                     $stmtHist->bind_param('sss', $creatorName, $operation, $unit);
@@ -1030,7 +1086,7 @@ try {
             $mysqli = getDbConnection();
             try {
                 $stmt = $mysqli->prepare(
-                    "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`
+                    "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`
                      FROM history
                      WHERE unit = ?
                      ORDER BY `date` DESC, id DESC"
@@ -1115,7 +1171,7 @@ try {
                     $countStmt->close();
                 }
 
-                $sql = "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date` FROM history";
+                $sql = "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date` FROM history";
                 if (!empty($where)) {
                     $sql .= " WHERE " . implode(" AND ", $where);
                 }

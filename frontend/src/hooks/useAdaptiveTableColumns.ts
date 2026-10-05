@@ -1,4 +1,5 @@
-import { useLayoutEffect, type RefObject } from 'react';
+import { useEffect, type RefObject } from 'react';
+import { sampleTableCells } from '../lib/tableLayout';
 
 const SCROLLBAR_WIDTH = 14;
 const PROCESS_MAX_WIDTH = 320;
@@ -10,10 +11,25 @@ export function useAdaptiveTableColumns(
     processColumn: number,
     layoutKey: unknown,
 ) {
-    useLayoutEffect(() => {
+    useEffect(() => {
         const table = tableRef.current;
         const wrapper = table?.parentElement;
         if (!table || !wrapper) return;
+
+        let naturalWidths: number[] | null = null;
+        let frame = 0;
+
+        const applyWidths = () => {
+            if (!naturalWidths) return;
+            const widths = [...naturalWidths];
+            const available = Math.max(0, wrapper.clientWidth - SCROLLBAR_WIDTH);
+            const naturalWidth = widths.reduce((sum, width) => sum + width, 0);
+            widths[columnCount - 1] += Math.max(0, available - naturalWidth);
+            widths.forEach((width, index) => {
+                table.style.setProperty(`--table-column-${index + 1}`, `${width}px`);
+            });
+            table.style.width = `${widths.reduce((sum, width) => sum + width, SCROLLBAR_WIDTH)}px`;
+        };
 
         const measure = () => {
             const headerCells = Array.from(table.tHead?.rows[0]?.cells ?? []);
@@ -34,10 +50,10 @@ export function useAdaptiveTableColumns(
             };
 
             headerCells.forEach(addCell);
-            for (const row of Array.from(table.tBodies[0]?.rows ?? [])) {
-                if (row.cells.length !== columnCount) continue;
-                Array.from(row.cells).forEach(addCell);
-            }
+            const bodyRows = Array.from(table.tBodies[0]?.rows ?? [])
+                .filter(row => row.cells.length === columnCount);
+            const sampledCells = sampleTableCells(bodyRows.map(row => Array.from(row.cells)), columnCount);
+            sampledCells.forEach(cell => addCell(cell, cell.cellIndex));
             document.body.append(probe);
 
             const widths = Array<number>(columnCount).fill(0);
@@ -48,18 +64,34 @@ export function useAdaptiveTableColumns(
             probe.remove();
 
             widths[processColumn] = Math.min(widths[processColumn], PROCESS_MAX_WIDTH);
-            const available = Math.max(0, wrapper.clientWidth - SCROLLBAR_WIDTH);
-            const naturalWidth = widths.reduce((sum, width) => sum + width, 0);
-            widths[columnCount - 1] += Math.max(0, available - naturalWidth);
-            widths.forEach((width, index) => {
-                table.style.setProperty(`--table-column-${index + 1}`, `${width}px`);
-            });
-            table.style.width = `${widths.reduce((sum, width) => sum + width, SCROLLBAR_WIDTH)}px`;
+            naturalWidths = widths;
+            applyWidths();
         };
 
-        measure();
-        const observer = new ResizeObserver(measure);
+        const scheduleLayout = () => {
+            if (frame) return;
+            frame = window.requestAnimationFrame(() => {
+                frame = 0;
+                if (naturalWidths) applyWidths();
+                else measure();
+            });
+        };
+        scheduleLayout();
+        const observer = new ResizeObserver(scheduleLayout);
         observer.observe(wrapper);
-        return () => observer.disconnect();
+        // Re-measure once if a web font changes the intrinsic text widths.
+        let disposed = false;
+        if (document.fonts?.status === 'loading') {
+            void document.fonts.ready.then(() => {
+                if (disposed) return;
+                naturalWidths = null;
+                scheduleLayout();
+            });
+        }
+        return () => {
+            disposed = true;
+            window.cancelAnimationFrame(frame);
+            observer.disconnect();
+        };
     }, [tableRef, rows, columnCount, processColumn, layoutKey]);
 }

@@ -322,7 +322,7 @@ html:has(.staff-screen) {
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: none;
   }
 }
 
@@ -448,6 +448,13 @@ html:has(.staff-screen) {
 }
 
 /* Login View animations & effects matching PalletX */
+:root {
+  --ui-enter-opacity: 0;
+  --ui-enter-translate-x: 0;
+  --ui-enter-translate-y: 0;
+  --ui-enter-scale: 1;
+}
+
 @keyframes ui-enter {
   from {
     opacity: var(--ui-enter-opacity, 0);
@@ -464,6 +471,7 @@ html:has(.staff-screen) {
 
 .login-card-enter {
   --ui-enter-opacity: 0;
+  --ui-enter-translate-x: 0;
   --ui-enter-translate-y: 22px;
   --ui-enter-scale: 0.97;
   animation: ui-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -471,6 +479,7 @@ html:has(.staff-screen) {
 
 .login-fields-enter {
   --ui-enter-opacity: 0;
+  --ui-enter-translate-x: 0;
   --ui-enter-translate-y: 8px;
   --ui-enter-scale: 1;
   animation: ui-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;

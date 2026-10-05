@@ -1,6 +1,6 @@
 import type { MasterUnit } from '../types';
 
-export type MasterSortField = 'unit' | 'process' | 'FIS' | 'currentCounter' | 'errorCounter' | 'status' | 'user' | 'isactive';
+export type MasterSortField = 'unit' | 'process' | 'FIS' | 'currentCounter' | 'errorCounter' | 'globalCounter' | 'status' | 'user' | 'isactive';
 export type SortDirection = 'asc' | 'desc';
 
 export type TaskPreset = 'all' | 'action_required' | 'blocked' | 'cycles_80' | 'errors_exceeded' | 'my_processes';
@@ -79,7 +79,7 @@ export const sortMasters = (
     direction: SortDirection,
 ): MasterUnit[] => {
     const multiplier = direction === 'asc' ? 1 : -1;
-    const numericFields: MasterSortField[] = ['currentCounter', 'errorCounter', 'isactive'];
+    const numericFields: MasterSortField[] = ['currentCounter', 'errorCounter', 'globalCounter', 'isactive'];
 
     return [...masters].sort((left, right) => {
         if (numericFields.includes(field)) {
@@ -103,7 +103,7 @@ export const escapeCsvCell = (value: unknown): string => {
 };
 
 export const buildMastersCsv = (masters: MasterUnit[]): string => {
-    const headers = ['Unit', 'Process', 'Status', 'CurrentCounter', 'MaxCounter', 'ErrorCounter', 'ErrorMaxCounter', 'User', 'IsActive', 'FIS'];
+    const headers = ['Unit', 'Process', 'Status', 'CurrentCounter', 'MaxCounter', 'ErrorCounter', 'ErrorMaxCounter', 'GlobalCounter', 'User', 'IsActive', 'FIS'];
     const rows = masters.map(master => [
         master.unit,
         master.process,
@@ -112,6 +112,7 @@ export const buildMastersCsv = (masters: MasterUnit[]): string => {
         master.maxCounter,
         master.errorCounter,
         master.errorMaxCounter,
+        master.globalCounter ?? 0,
         master.user,
         master.isactive,
         master.FIS,
@@ -143,4 +144,16 @@ export const getPaginationItems = (current: number, total: number): (number | st
         return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
     }
     return [1, '...', current - 1, current, current + 1, '...', total];
+};
+
+export const parsePaginationParams = (
+    searchParams: URLSearchParams,
+    allowedPageSizes: readonly number[] = [15, 25, 50, 100, 250, 500],
+    defaultPageSize = 50,
+): { page: number; pageSize: number } => {
+    const rawPageSize = Number(searchParams.get('pageSize'));
+    const pageSize = allowedPageSizes.includes(rawPageSize) ? rawPageSize : defaultPageSize;
+    const rawPage = Number(searchParams.get('page'));
+    const page = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+    return { page, pageSize };
 };

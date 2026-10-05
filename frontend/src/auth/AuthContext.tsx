@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(loggedUser);
             return { status: true };
         } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : 'Błąd logowania';
+            const msg = error instanceof Error ? error.message : '';
             return { status: false, message: msg };
         }
     }, []);

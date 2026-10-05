@@ -68,8 +68,9 @@ export async function apiRequest<T = unknown>(
         }
     });
 
+    const isRouterRequest = url.toLowerCase().includes('router.php');
     const userHeaders: Record<string, string> = {};
-    if (cachedSessionUser) {
+    if (cachedSessionUser && !isRouterRequest) {
         userHeaders['X-User'] = toSafeHeaderValue(cachedSessionUser);
         if (cachedSessionUserName) {
             userHeaders['X-User-Name'] = toSafeHeaderValue(cachedSessionUserName);
@@ -94,7 +95,7 @@ export async function apiRequest<T = unknown>(
         payload = await response.json();
     } catch {
         throw new ApiError(
-            `Serwer zwrócił nieprawidłową odpowiedź (${response.status})`,
+            '',
             response.status,
         );
     }
@@ -110,7 +111,7 @@ export async function apiRequest<T = unknown>(
 
     if (!response.ok || !result.status) {
         throw new ApiError(
-            result.message || `Błąd HTTP ${response.status}: ${response.statusText}`,
+            result.message || '',
             response.status,
             result as ApiResponse,
         );

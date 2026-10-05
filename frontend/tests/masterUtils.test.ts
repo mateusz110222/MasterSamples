@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMastersCsv, filterMasters, getActivePercentage, getPaginationItems, matchesCurrentUser, matchesProcess, sortMasters } from '../src/lib/masterUtils.ts';
+import { buildMastersCsv, filterMasters, getActivePercentage, getPaginationItems, matchesCurrentUser, matchesProcess, parsePaginationParams, sortMasters } from '../src/lib/masterUtils.ts';
 import type { MasterUnit } from '../src/types';
 
 const master = (overrides: Partial<MasterUnit> = {}): MasterUnit => ({
@@ -97,4 +97,21 @@ test('getPaginationItems produces expected page numbers and ellipses', () => {
     assert.deepEqual(getPaginationItems(2, 10), [1, 2, 3, 4, 5, '...', 10]);
     assert.deepEqual(getPaginationItems(9, 10), [1, '...', 6, 7, 8, 9, 10]);
     assert.deepEqual(getPaginationItems(5, 10), [1, '...', 4, 5, 6, '...', 10]);
+});
+
+test('parsePaginationParams parses page and pageSize or returns defaults', () => {
+    const params1 = new URLSearchParams('page=3&pageSize=100');
+    assert.deepEqual(parsePaginationParams(params1), { page: 3, pageSize: 100 });
+
+    const params2 = new URLSearchParams('page=-1&pageSize=999');
+    assert.deepEqual(parsePaginationParams(params2), { page: 1, pageSize: 50 });
+
+    const params3 = new URLSearchParams('');
+    assert.deepEqual(parsePaginationParams(params3), { page: 1, pageSize: 50 });
+});
+
+test('pagination rejects fractional, non-finite and unsafe page numbers', () => {
+    for (const page of ['1.5', 'Infinity', 'NaN', '9007199254740992', '0', '-2']) {
+        assert.equal(parsePaginationParams(new URLSearchParams({ page })).page, 1);
+    }
 });

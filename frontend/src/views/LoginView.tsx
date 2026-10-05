@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router';
 import {
     AlertCircle,
     Eye,
@@ -27,7 +27,7 @@ export const LoginView: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
         const trimmedUser = username.trim();
         if (!trimmedUser || !password) return;
@@ -38,13 +38,13 @@ export const LoginView: React.FC = () => {
         try {
             const res = await login(trimmedUser, password);
             if (!res.status) {
-                setErrorMessage(res.message || t.loginErrorTitle);
+                setErrorMessage(res.message || '');
             } else {
                 const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
                 navigate(destination, { replace: true });
             }
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : t.loginErrorTitle;
+            const msg = err instanceof Error ? err.message : '';
             setErrorMessage(msg);
         } finally {
             setLoading(false);
@@ -69,7 +69,7 @@ export const LoginView: React.FC = () => {
                         language === 'PL' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                     }`}
                 >
-                    PL
+                    {t.languagePlShort}
                 </button>
                 <button
                     type="button"
@@ -78,7 +78,7 @@ export const LoginView: React.FC = () => {
                         language === 'EN' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                     }`}
                 >
-                    EN
+                    {t.languageEnShort}
                 </button>
             </div>
 
@@ -96,7 +96,7 @@ export const LoginView: React.FC = () => {
                         <ShieldCheck size={30} />
                     </div>
                     <span className="text-xs font-black tracking-[0.25em] text-brand-accent uppercase">
-                        MASTER SAMPLES
+                        {t.appName}
                     </span>
                     <h1 className="text-xl sm:text-2xl font-black text-brand-text tracking-tight uppercase">
                         {t.loginTitle}
@@ -107,7 +107,7 @@ export const LoginView: React.FC = () => {
                 </div>
 
                 {/* Komunikat o błędzie */}
-                {errorMessage && (
+                {errorMessage !== null && (
                     <div
                         role="alert"
                         className="login-fields-enter bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3 text-red-400 text-xs overflow-hidden"
@@ -115,7 +115,7 @@ export const LoginView: React.FC = () => {
                         <AlertCircle size={18} className="shrink-0 mt-0.5" />
                         <div className="space-y-1">
                             <p className="font-bold uppercase tracking-wider">{t.loginErrorTitle}</p>
-                            <p className="text-red-300/90 leading-relaxed">{errorMessage}</p>
+                            <p className="text-red-300/90 leading-relaxed">{language === 'PL' ? errorMessage || t.loginErrorTitle : t.loginErrorTitle}</p>
                         </div>
                     </div>
                 )}
@@ -220,7 +220,7 @@ export const LoginView: React.FC = () => {
                             <UserCheck size={16} className="text-brand-accent" />
                             <span>
                                 {isGuest
-                                    ? (language === 'PL' ? 'WRÓĆ DO DASHBOARDU (TRYB GOŚCIA)' : 'RETURN TO DASHBOARD (GUEST MODE)')
+                                    ? t.loginGuestReturn
                                     : t.loginGuestBtn}
                             </span>
                         </button>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import {
     LayoutDashboard,
     PlusCircle,
@@ -8,6 +8,7 @@ import {
     History,
     X,
     Code2,
+    LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { useLanguage } from '../../i18n/useLanguage';
@@ -15,10 +16,11 @@ import { useLanguage } from '../../i18n/useLanguage';
 interface SidebarProps {
     mobileOpen: boolean;
     onMobileClose: () => void;
+    onLogout: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) => {
-    const { canEdit } = useAuth();
+export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose, onLogout }) => {
+    const { canEdit, user } = useAuth();
     const { t } = useLanguage();
 
     const navItems = [
@@ -63,10 +65,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
                         {t.sidebarAuthorRole}
                     </p>
                     <p className="truncate text-xs font-bold text-brand-text">
-                        Mateusz Zieliński
+                        {t.authorName}
                     </p>
                 </div>
             </div>
+        </div>
+    );
+
+    const logoutButton = (onAction?: () => void) => (
+        <div className="border-t border-brand-border p-4">
+            <button
+                type="button"
+                onClick={() => {
+                    onAction?.();
+                    onLogout();
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded border border-brand-border py-2.5 text-xs font-bold uppercase tracking-wider text-brand-text-muted transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
+            >
+                <LogOut size={16} />
+                {t.logoutBtn}
+            </button>
         </div>
     );
 
@@ -74,10 +92,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
         <>
             <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-brand-border bg-brand-surface lg:flex">
                 <div className="border-b border-brand-border p-6">
-                    <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
+                    <span className="text-lg font-black tracking-wider text-brand-accent">{t.appName}</span>
                 </div>
                 {navigation()}
                 {authorFooter}
+                {user && logoutButton()}
             </aside>
 
             {mobileOpen && (
@@ -86,25 +105,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
                         type="button"
                         className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm"
                         onClick={onMobileClose}
-                        aria-label="Close navigation"
+                        aria-label={t.closeNavigation}
                     />
                     <aside
                         id="mobile-navigation"
                         className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-brand-border bg-brand-surface shadow-2xl animate-drawer-in"
                     >
                         <div className="flex items-center justify-between border-b border-brand-border p-5">
-                            <span className="text-lg font-black tracking-wider text-brand-accent">MASTER SAMPLES</span>
+                            <span className="text-lg font-black tracking-wider text-brand-accent">{t.appName}</span>
                             <button
                                 type="button"
                                 onClick={onMobileClose}
                                 className="flex size-10 items-center justify-center rounded-lg border border-brand-border text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text"
-                                aria-label="Close navigation"
+                                aria-label={t.closeNavigation}
                             >
                                 <X size={20} />
                             </button>
                         </div>
                         {navigation(onMobileClose)}
                         {authorFooter}
+                        {user && logoutButton(onMobileClose)}
                     </aside>
                 </div>
             )}

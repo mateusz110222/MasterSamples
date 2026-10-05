@@ -1,13 +1,16 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { fisApi } from '../api/fisApi';
 import { masterApi, CreateMasterPayload, FisTarget, normalizeFisTarget } from '../api/masterApi';
 import type { MasterUnit, ProcessTagItem } from '../types';
 import { useLanguage } from '../i18n/useLanguage';
+import type { TranslationsType } from '../i18n/LanguageContext';
 import { Modal } from '../components/common/Modal';
 import { getErrorMessage } from '../lib/errors';
+import { ApiError } from '../api/client';
 import { ErrorBanner } from '../components/common/ErrorBanner';
+import { refreshMasterData } from '../lib/queryCache';
 
 import {
     PlusCircle,
@@ -18,8 +21,20 @@ import {
     RefreshCw,
     X,
     Search,
-    ChevronDown
+    ChevronDown,
+    Tag,
 } from 'lucide-react';
+
+const formatMessage = (template: string, values: Record<string, string | number>) =>
+    template.replace(/\{(\w+)\}/g, (match, key: string) => String(values[key] ?? match));
+
+type Feedback = {
+    type: 'success' | 'error';
+    key: keyof TranslationsType;
+    values?: Record<string, string | number>;
+    serverMessage?: string;
+    statusCode?: number;
+};
 
 const ProcessCombobox = ({
     options,
@@ -38,6 +53,7 @@ const ProcessCombobox = ({
     isLoading: boolean;
     hasError: boolean;
 }) => {
+    const { t } = useLanguage();
     const inputId = useId();
     const listId = useId();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -72,7 +88,16 @@ const ProcessCombobox = ({
         setQuery('');
         setIsOpen(false);
         setActiveIndex(-1);
-        inputRef.current?.focus();
+    };
+
+    const handleClear = (event: React.MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onChange('');
+        setQuery('');
+        setIsOpen(false);
+        setActiveIndex(-1);
+        inputRef.current?.blur();
     };
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -100,7 +125,7 @@ const ProcessCombobox = ({
     };
 
     return (
-        <div ref={containerRef} className="relative" onBlur={event => {
+        <div ref={containerRef} className={`relative ${isOpen ? 'z-40' : 'z-20'}`} onBlur={event => {
             if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
         }}>
             <label htmlFor={inputId} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-brand-text">
@@ -118,7 +143,7 @@ const ProcessCombobox = ({
                     aria-activedescendant={isOpen && activeIndex >= 0 && filtered[activeIndex] ? `${listId}-option-${activeIndex}` : undefined}
                     autoComplete="off"
                     value={isOpen ? query : value}
-                    placeholder={isLoading ? 'Ładowanie procesów…' : placeholder}
+                    placeholder={isLoading ? t.loadingProcesses : placeholder}
                     disabled={isLoading || hasError}
                     onFocus={() => { setIsOpen(true); setQuery(''); setActiveIndex(-1); }}
                     onPointerDown={() => {
@@ -132,13 +157,27 @@ const ProcessCombobox = ({
                     onKeyDown={handleKeyDown}
                     className="min-w-0 flex-1 bg-transparent font-mono text-sm text-brand-text placeholder-brand-text-muted outline-none disabled:opacity-60"
                 />
-                {value && <button type="button" aria-label="Wyczyść wybrany proces" title="Wyczyść wybrany proces" onClick={() => choose('')} className="rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"><X size={16} /></button>}
-                <button type="button" tabIndex={-1} aria-label={isOpen ? 'Zamknij listę procesów' : 'Otwórz listę procesów'} onMouseDown={event => event.preventDefault()} onClick={() => { inputRef.current?.focus(); setIsOpen(!isOpen); setQuery(''); setActiveIndex(-1); }} className="ml-1 rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"><ChevronDown size={17} className={isOpen ? 'rotate-180' : ''} /></button>
+                {(value || query) && (
+                    <button
+                        type="button"
+                        aria-label={t.processClear}
+                        title={t.processClear}
+                        onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }}
+                        onClick={handleClear}
+                        className="rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text cursor-pointer transition-colors"
+                    >
+                        <X size={16} />
+                    </button>
+                )}
+                <button type="button" tabIndex={-1} aria-label={isOpen ? t.processCloseList : t.processOpenList} onMouseDown={event => event.preventDefault()} onClick={() => { inputRef.current?.focus(); setIsOpen(!isOpen); setQuery(''); setActiveIndex(-1); }} className="ml-1 rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"><ChevronDown size={17} className={isOpen ? 'rotate-180' : ''} /></button>
             </div>
             {isOpen && (
-                <div id={listId} role="listbox" aria-label="Procesy produkcyjne" className="absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-brand-border bg-brand-surface-high p-1.5 shadow-2xl shadow-black/60">
+                <div id={listId} role="listbox" aria-label={t.processList} className="absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-brand-border bg-brand-surface-high p-1.5 shadow-2xl shadow-black/60">
                     {filtered.length === 0 ? (
-                        <p className="px-3 py-3 text-sm text-brand-text-muted">{isLoading ? 'Ładowanie procesów…' : 'Brak pasujących procesów'}</p>
+                        <p className="px-3 py-3 text-sm text-brand-text-muted">{isLoading ? t.loadingProcesses : t.processNoMatches}</p>
                     ) : filtered.map((option, index) => (
                         <div
                             key={option.key}
@@ -158,10 +197,210 @@ const ProcessCombobox = ({
     );
 };
 
+const PnCombobox = ({
+    options,
+    value,
+    onChange,
+    label,
+    placeholder,
+    isLoading,
+    hasError,
+    invalid,
+}: {
+    options: string[];
+    value: string;
+    onChange: (value: string) => void;
+    label: string;
+    placeholder: string;
+    isLoading: boolean;
+    hasError: boolean;
+    invalid: boolean;
+}) => {
+    const { t } = useLanguage();
+    const inputId = useId();
+    const listId = useId();
+    const containerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [activeIndex, setActiveIndex] = useState(-1);
+
+    const filtered = useMemo(() => {
+        const search = query.trim().toLocaleLowerCase();
+        return search
+            ? options.filter(option => option.toLocaleLowerCase().includes(search))
+            : options;
+    }, [options, query]);
+    const visibleOptions = filtered.slice(0, 150);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const closeOnOutsideClick = (event: PointerEvent) => {
+            if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+        };
+        document.addEventListener('pointerdown', closeOnOutsideClick);
+        return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && activeIndex >= 0) {
+            document.getElementById(`${listId}-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [activeIndex, isOpen, listId]);
+
+    const choose = (key: string) => {
+        onChange(key);
+        setQuery(key);
+        setIsOpen(false);
+        setActiveIndex(-1);
+    };
+
+    const handleClear = (event: React.MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onChange('');
+        setQuery('');
+        setIsOpen(false);
+        setActiveIndex(-1);
+        inputRef.current?.blur();
+    };
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!isOpen) {
+                setIsOpen(true);
+                setQuery('');
+                setActiveIndex(event.key === 'ArrowDown' ? (options.length ? 0 : -1) : Math.min(options.length, 150) - 1);
+            } else if (visibleOptions.length > 0) {
+                setActiveIndex(index => event.key === 'ArrowDown'
+                    ? (index + 1) % visibleOptions.length
+                    : (index <= 0 ? visibleOptions.length - 1 : index - 1));
+            }
+        } else if (event.key === 'Enter' && isOpen) {
+            event.preventDefault();
+            // A highlighted suggestion wins; otherwise keep the number typed by the user.
+            choose(activeIndex >= 0 ? visibleOptions[activeIndex] : query.trim());
+        } else if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            setIsOpen(false);
+            setQuery(value);
+            setActiveIndex(-1);
+        }
+    };
+
+    return (
+        <div ref={containerRef} className={`relative ${isOpen ? 'z-30' : 'z-10'}`} onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+                setIsOpen(false);
+                setQuery(value);
+            }
+        }}>
+            <label htmlFor={inputId} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-brand-text">
+                {label} <span className="text-rose-400">*</span>
+            </label>
+            <div className={`flex h-12 items-center rounded-xl border bg-brand-surface-high px-3 transition-colors ${invalid ? 'border-rose-400 ring-2 ring-rose-400/20' : isOpen ? 'border-brand-accent ring-2 ring-brand-accent/20' : 'border-brand-border hover:border-brand-text-muted/60'}`}>
+                <Search size={16} className="mr-2 shrink-0 text-brand-text-muted" aria-hidden="true" />
+                <input
+                    ref={inputRef}
+                    id={inputId}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={isOpen}
+                    aria-invalid={invalid}
+                    aria-controls={listId}
+                    aria-activedescendant={isOpen && activeIndex >= 0 && visibleOptions[activeIndex] ? `${listId}-option-${activeIndex}` : undefined}
+                    autoComplete="off"
+                    value={isOpen ? query : value}
+                    placeholder={placeholder}
+                    onFocus={() => { setIsOpen(true); setQuery(value); setActiveIndex(-1); }}
+                    onChange={event => {
+                        setQuery(event.target.value);
+                        onChange(event.target.value);
+                        setIsOpen(true);
+                        setActiveIndex(-1);
+                    }}
+                    onKeyDown={handleKeyDown}
+                    className="min-w-0 flex-1 bg-transparent font-mono text-sm text-brand-text placeholder-brand-text-muted outline-none disabled:opacity-60"
+                />
+                {(value || query) && (
+                    <button
+                        type="button"
+                        aria-label={t.pnClear}
+                        title={t.pnClear}
+                        onMouseDown={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }}
+                        onClick={handleClear}
+                        className="rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text cursor-pointer transition-colors"
+                    >
+                        <X size={16} />
+                    </button>
+                )}
+                <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={isOpen ? t.pnCloseList : t.pnOpenList}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => {
+                        if (isOpen) {
+                            setIsOpen(false);
+                        } else {
+                            inputRef.current?.focus();
+                            setQuery('');
+                            setIsOpen(true);
+                        }
+                        setActiveIndex(-1);
+                    }}
+                    className="ml-1 rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"
+                >
+                    <ChevronDown size={17} className={isOpen ? 'rotate-180' : ''} />
+                </button>
+            </div>
+            {isOpen && (
+                <div id={listId} role="listbox" aria-label={t.pnList} className="absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-brand-border bg-brand-surface-high p-1.5 shadow-2xl shadow-black/60">
+                    {filtered.length === 0 ? (
+                        <p className="px-3 py-3 text-sm text-brand-text-muted">
+                            {isLoading ? t.pnLoadingManual : hasError ? t.pnUnavailableManual : t.pnNoMatchesManual}
+                        </p>
+                    ) : (
+                        visibleOptions.map((pn, index) => (
+                            <div
+                                key={pn}
+                                id={`${listId}-option-${index}`}
+                                role="option"
+                                aria-selected={pn === value}
+                                onMouseDown={event => event.preventDefault()}
+                                onClick={() => choose(pn)}
+                                className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === activeIndex ? 'bg-brand-accent/30 text-white' : 'text-brand-text hover:bg-brand-accent/20'}`}
+                            >
+                                <span className="font-mono font-bold">{pn}</span>
+                            </div>
+                        ))
+                    )}
+                    {filtered.length > 150 && (
+                        <p className="px-3 py-2 text-xs text-brand-text-muted font-mono text-center border-t border-brand-border/40">
+                            {formatMessage(t.pnMoreResults, { count: filtered.length - 150 })}
+                        </p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const CreateMasterView: React.FC = () => {
     const navigate = useNavigate();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const queryClient = useQueryClient();
+    const localizedError = (error: unknown, fallback: string) => {
+        if (language === 'PL') return getErrorMessage(error, fallback);
+        if (error instanceof ApiError && error.statusCode > 0) {
+            return `${fallback} ${formatMessage(t.httpErrorCode, { code: error.statusCode })}`;
+        }
+        return fallback;
+    };
 
     // Mode: 'single' | 'multiple'
     const [mode, setMode] = useState<'single' | 'multiple'>('single');
@@ -171,6 +410,9 @@ export const CreateMasterView: React.FC = () => {
     const [singleProcess, setSingleProcess] = useState('');
     const [selectedProcesses, setSelectedProcesses] = useState<string[]>([]);
     const [multiSearchQuery, setMultiSearchQuery] = useState('');
+    const [assignPn, setAssignPn] = useState(false);
+    const [selectedPn, setSelectedPn] = useState('');
+    const [pnRequiredError, setPnRequiredError] = useState(false);
     const [status, setStatus] = useState<'GOOD' | 'BAD'>('GOOD');
     const [maxCounter, setMaxCounter] = useState<number>(1000);
     const [maxErrors, setMaxErrors] = useState<number>(50);
@@ -183,7 +425,11 @@ export const CreateMasterView: React.FC = () => {
     });
 
     const handleFisChange = (fis: FisTarget) => {
+        if (fis === selectedFis) return;
         setSelectedFis(fis);
+        setSingleProcess('');
+        setSelectedProcesses([]);
+        setMultiSearchQuery('');
         try {
             window.localStorage.setItem('masterSamples.selectedFis', fis);
         } catch {
@@ -198,12 +444,26 @@ export const CreateMasterView: React.FC = () => {
     } | null>(null);
 
     // Feedback state
-    const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [feedback, setFeedback] = useState<Feedback | null>(null);
+    const feedbackMessage = feedback && (language === 'PL' && feedback.serverMessage
+        ? feedback.serverMessage
+        : formatMessage(t[feedback.key], feedback.values ?? {}));
+    const feedbackStatus = feedback?.statusCode && language === 'EN'
+        ? ` ${formatMessage(t.httpErrorCode, { code: feedback.statusCode })}`
+        : '';
 
     // Fetch process tags (normalized to ProcessTagItem[])
     const { data: processTags = [], isLoading: tagsLoading, error: processTagsError } = useQuery({
-        queryKey: ['processTags'],
-        queryFn: () => fisApi.getProcessTags(),
+        queryKey: ['processTags', selectedFis],
+        queryFn: () => fisApi.getProcessTags(selectedFis),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    // Fetch PN / userkey2 tags when enabled
+    const { data: pnTags = [], isLoading: pnLoading, error: pnError } = useQuery({
+        queryKey: ['userKey2Tags', selectedFis],
+        queryFn: () => fisApi.getUserKey2Tags(selectedFis),
+        enabled: assignPn,
         staleTime: 5 * 60 * 1000,
     });
 
@@ -234,25 +494,31 @@ export const CreateMasterView: React.FC = () => {
 
             if (res.status) {
                 const isMigration = variables.forceUpdate && variables.oldFis && variables.oldFis !== variables.fis;
-                const successMsg = isMigration
-                    ? `Master '${variables.unit}' został pomyślnie usunięty z ${variables.oldFis}, zarejestrowany w ${variables.fis} i zaktualizowany!`
-                    : (res.message || 'Master został pomyślnie zapisany w systemie!');
-                setFeedback({ type: 'success', message: successMsg });
-                void queryClient.invalidateQueries({ queryKey: ['masters'] });
+                setFeedback(isMigration
+                    ? { type: 'success', key: 'masterMigrated', values: { unit: variables.unit, oldFis: variables.oldFis!, fis: variables.fis } }
+                    : { type: 'success', key: 'masterSaved' });
+                void refreshMasterData(queryClient);
                 setExistingModalData(null);
                 // Reset form
                 setSerialNumber('');
+                setAssignPn(false);
+                setSelectedPn('');
                 if (mode === 'single') setSingleProcess('');
                 else {
                     setSelectedProcesses([]);
                     setMultiSearchQuery('');
                 }
             } else {
-                setFeedback({ type: 'error', message: res.message || 'Wystąpił błąd podczas tworzenia mastera.' });
+                setFeedback({ type: 'error', key: 'masterSaveError', serverMessage: res.message });
             }
         },
         onError: (error: unknown) => {
-            setFeedback({ type: 'error', message: getErrorMessage(error, 'Błąd połączenia z serwerem.') });
+            setFeedback({
+                type: 'error',
+                key: 'connectionError',
+                serverMessage: getErrorMessage(error, t.connectionError),
+                statusCode: error instanceof ApiError ? error.statusCode : undefined,
+            });
         }
     });
 
@@ -262,13 +528,19 @@ export const CreateMasterView: React.FC = () => {
 
         const sn = serialNumber.trim().toUpperCase();
         if (!sn) {
-            setFeedback({ type: 'error', message: 'Wpisz lub zeskanuj numer seryjny (SN)!' });
+            setFeedback({ type: 'error', key: 'serialRequired' });
             return;
         }
 
         const proc = mode === 'single' ? singleProcess.trim() : selectedProcesses.join(',');
         if (!proc) {
-            setFeedback({ type: 'error', message: 'Wybierz co najmniej jeden proces produkcyjny!' });
+            setFeedback({ type: 'error', key: 'processRequired' });
+            return;
+        }
+
+        if (assignPn && !selectedPn.trim()) {
+            setPnRequiredError(true);
+            setFeedback({ type: 'error', key: 'pnValidation' });
             return;
         }
 
@@ -283,6 +555,7 @@ export const CreateMasterView: React.FC = () => {
             maxCounter: Number(maxCounter) || 1000,
             maxErrors: Number(maxErrors) || 50,
             fis: selectedFis,
+            userKey2: assignPn && selectedPn.trim() ? selectedPn.trim() : undefined,
             forceUpdate,
             oldFis,
         });
@@ -306,7 +579,7 @@ export const CreateMasterView: React.FC = () => {
 
     return (
         <div className="max-w-2xl mx-auto space-y-6">
-            <ErrorBanner message={processTagsError ? getErrorMessage(processTagsError, 'Nie udało się pobrać listy procesów.') : null} />
+            <ErrorBanner message={processTagsError ? localizedError(processTagsError, t.processLoadError) : null} />
             {/* Top Navigation Back */}
             <div className="flex items-center justify-between gap-3">
                 <button
@@ -374,7 +647,7 @@ export const CreateMasterView: React.FC = () => {
                                             : 'text-brand-text-muted hover:text-brand-text'
                                     }`}
                                 >
-                                    {fis === 'FIS1' ? 'FIS 1' : 'FIS 2'}
+                                    {fis === 'FIS1' ? t.fis1Option : t.fis2Option}
                                 </button>
                             ))}
                         </div>
@@ -393,7 +666,7 @@ export const CreateMasterView: React.FC = () => {
                         ) : (
                             <AlertCircle className="text-rose-400 shrink-0 mt-0.5" size={18} />
                         )}
-                        <div className="flex-1 font-medium">{feedback.message}</div>
+                        <div className="flex-1 font-medium">{feedbackMessage}{feedbackStatus}</div>
                         <button type="button" onClick={() => setFeedback(null)} className="text-brand-text-muted hover:text-brand-text cursor-pointer">
                             <X size={16} />
                         </button>
@@ -410,7 +683,7 @@ export const CreateMasterView: React.FC = () => {
                             {serialNumber.trim() && (
                                 <span className="text-[11px] font-mono text-brand-accent font-semibold flex items-center gap-1">
                                     <Check size={12} className="text-emerald-400" />
-                                    <span>{serialNumber.trim().length} znaków</span>
+                                    <span>{formatMessage(t.serialLength, { count: serialNumber.trim().length })}</span>
                                 </span>
                             )}
                         </div>
@@ -425,17 +698,19 @@ export const CreateMasterView: React.FC = () => {
                     </div>
 
                     {/* 2. Process Selection */}
-                    {mode === 'single' ? (
-                        <ProcessCombobox
-                            options={processTags}
-                            value={singleProcess}
-                            onChange={setSingleProcess}
-                            label={t.processLabel}
-                            placeholder={t.selectProcessPlaceholder}
-                            isLoading={tagsLoading}
-                            hasError={Boolean(processTagsError)}
-                        />
-                    ) : (
+                    <div className="relative z-30">
+                        {mode === 'single' ? (
+                            <ProcessCombobox
+                                key={selectedFis}
+                                options={processTags}
+                                value={singleProcess}
+                                onChange={setSingleProcess}
+                                label={t.processLabel}
+                                placeholder={t.selectProcessPlaceholder}
+                                isLoading={tagsLoading}
+                                hasError={Boolean(processTagsError)}
+                            />
+                        ) : (
                         <div className="space-y-2.5">
                             <div className="flex items-center justify-between">
                                 <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
@@ -443,7 +718,7 @@ export const CreateMasterView: React.FC = () => {
                                 </label>
                                 {selectedProcesses.length > 0 && (
                                     <span className="text-xs font-mono text-brand-accent font-bold">
-                                        Zaznaczono: {selectedProcesses.length}
+                                        {formatMessage(t.selectedProcessesCount, { count: selectedProcesses.length })}
                                     </span>
                                 )}
                             </div>
@@ -459,7 +734,8 @@ export const CreateMasterView: React.FC = () => {
                                                     type="button"
                                                     onClick={() => toggleMultiProcess(p)}
                                                     className="hover:text-brand-text cursor-pointer"
-                                                    title="Usuń proces"
+                                                    title={t.removeProcess}
+                                                    aria-label={`${t.removeProcess}: ${p}`}
                                                 >
                                                     <X size={13} />
                                                 </button>
@@ -502,7 +778,7 @@ export const CreateMasterView: React.FC = () => {
 
                                 {/* Quick filter action toolbar */}
                                 <div className="flex items-center justify-between text-[11px] font-mono text-brand-text-muted px-0.5">
-                                    <span>{t.visibleProcessesCount} <strong className="text-brand-text">{filteredMultiTags.length}</strong> z {processTags.length}</span>
+                                    <span>{t.visibleProcessesCount} <strong className="text-brand-text">{filteredMultiTags.length}</strong> {t.outOfTotal} {processTags.length}</span>
                                     {multiSearchQuery && filteredMultiTags.length > 0 && (
                                         <div className="flex items-center gap-2">
                                             <button
@@ -518,7 +794,7 @@ export const CreateMasterView: React.FC = () => {
                                                 onClick={clearVisible}
                                                 className="text-brand-text-muted hover:text-brand-text cursor-pointer"
                                             >
-                                                Odznacz widoczne
+                                                {t.clearVisible}
                                             </button>
                                         </div>
                                     )}
@@ -530,7 +806,7 @@ export const CreateMasterView: React.FC = () => {
                                         <div className="text-xs text-brand-text-muted py-3 w-full text-center">{t.loadingProcesses}</div>
                                     ) : filteredMultiTags.length === 0 ? (
                                         <div className="text-xs text-brand-text-muted py-4 w-full text-center font-sans">
-                                            Nie znaleziono procesów pasujących do &quot;{multiSearchQuery}&quot;
+                                            {formatMessage(t.noProcessesForQuery, { query: multiSearchQuery })}
                                         </div>
                                     ) : (
                                         filteredMultiTags.map(tag => {
@@ -555,9 +831,72 @@ export const CreateMasterView: React.FC = () => {
                             </div>
                         </div>
                     )}
+                    </div>
+
+                    {/* PN / userkey2 Assignment */}
+                    <div className={`rounded-xl border transition-all duration-200 p-3.5 sm:p-4 space-y-3 relative ${
+                        assignPn
+                            ? 'z-20 border-brand-accent/40 bg-brand-accent/[0.04] shadow-xs shadow-brand-accent/10'
+                            : 'z-10 border-brand-border/70 bg-brand-surface-high/30 hover:border-brand-border hover:bg-brand-surface-high/50'
+                    }`}>
+                        <label className="group flex items-center gap-3 cursor-pointer select-none">
+                            <div className="relative flex items-center justify-center">
+                                <input
+                                    type="checkbox"
+                                    checked={assignPn}
+                                    onChange={(e) => {
+                                        const nextChecked = e.target.checked;
+                                        setAssignPn(nextChecked);
+                                        setPnRequiredError(false);
+                                        if (!nextChecked) {
+                                            setSelectedPn('');
+                                        }
+                                    }}
+                                    className="peer sr-only"
+                                />
+                                <div className={`
+                                    flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all duration-200
+                                    ${assignPn
+                                        ? 'border-brand-accent bg-brand-accent text-white shadow-[0_0_12px_rgba(99,102,241,0.4)]'
+                                        : 'border-brand-border bg-brand-surface text-transparent group-hover:border-brand-accent/50 group-hover:bg-brand-surface-high'}
+                                    peer-focus-visible:ring-2 peer-focus-visible:ring-brand-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-brand-surface
+                                `}>
+                                    <Check size={13} className={`stroke-[3] transition-all duration-200 ${assignPn ? 'scale-100 opacity-100' : 'scale-50 opacity-0'}`} />
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Tag size={16} className={`transition-colors duration-200 ${assignPn ? 'text-brand-accent' : 'text-brand-text-muted group-hover:text-brand-text'}`} />
+                                <span className={`text-sm font-semibold tracking-tight transition-colors duration-200 ${assignPn ? 'text-brand-text' : 'text-brand-text-muted group-hover:text-brand-text'}`}>
+                                    {t.assignPnCheckbox}
+                                </span>
+                            </div>
+                        </label>
+
+                        {assignPn && (
+                            <div className="pt-3 border-t border-brand-border/60 animate-scale-in space-y-1.5 relative z-20">
+                                <PnCombobox
+                                    options={pnTags}
+                                    value={selectedPn}
+                                    onChange={pn => { setSelectedPn(pn); setPnRequiredError(false); }}
+                                    label={t.pnLabel}
+                                    placeholder={t.pnPlaceholder}
+                                    isLoading={pnLoading}
+                                    hasError={Boolean(pnError)}
+                                    invalid={pnRequiredError}
+                                />
+                                {pnRequiredError && <p className="text-xs font-medium text-rose-300" role="alert">{t.pnRequired}</p>}
+                                <p className="text-xs text-brand-text-muted">{t.pnManualHint}</p>
+                                {pnError && (
+                                    <p className="text-xs text-rose-400 font-medium">
+                                        {localizedError(pnError, t.pnLoadError)} {t.pnManualStillAvailable}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     {/* 3. Status Toggle - ONLY "GOOD" and "BAD" as requested */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 relative z-0">
                         <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                             {t.statusLabel} <span className="text-rose-400">*</span>
                         </label>
@@ -572,7 +911,7 @@ export const CreateMasterView: React.FC = () => {
                                 }`}
                             >
                                 <CheckCircle2 size={18} className={status === 'GOOD' ? 'animate-scale-in text-emerald-400' : ''} />
-                                <span>GOOD</span>
+                                <span>{t.goodStatusLabel}</span>
                             </button>
 
                             <button
@@ -585,7 +924,7 @@ export const CreateMasterView: React.FC = () => {
                                 }`}
                             >
                                 <AlertCircle size={18} className={status === 'BAD' ? 'animate-scale-in text-rose-400' : ''} />
-                                <span>BAD</span>
+                                <span>{t.badStatusLabel}</span>
                             </button>
                         </div>
                     </div>
@@ -686,52 +1025,61 @@ export const CreateMasterView: React.FC = () => {
             <Modal
                 isOpen={!!existingModalData}
                 onClose={() => setExistingModalData(null)}
-                title="Master o tym SN już istnieje!"
-                description="Wykryto istniejący rekord w bazie. Czy chcesz zaktualizować jego parametry?"
+                title={t.existingMasterTitle}
+                description={t.existingMasterDescription}
                 maxWidth="lg"
             >
                 {existingModalData && (
                     <div className="space-y-5">
                         <div className="bg-brand-bg border border-brand-border rounded-xl p-4 text-xs font-mono">
                             <div className="grid grid-cols-3 gap-2 pb-2 border-b border-brand-border text-brand-text-muted font-bold uppercase">
-                                <div>Pole</div>
-                                <div>Poprzednia wartość</div>
-                                <div>Nowa wartość</div>
+                                <div>{t.fieldLabel}</div>
+                                <div>{t.previousValue}</div>
+                                <div>{t.newValue}</div>
                             </div>
                             <div className="divide-y divide-brand-border pt-2 space-y-2">
                                 <div className="grid grid-cols-3 gap-2 pt-2">
-                                    <span className="text-brand-text-muted">FIS</span>
+                                    <span className="text-brand-text-muted">{t.thFis}</span>
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.FIS}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.FIS}</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 pt-2">
-                                    <span className="text-brand-text-muted">Proces</span>
+                                    <span className="text-brand-text-muted">{t.processLabel}</span>
                                     <span className="text-rose-400 font-semibold break-all">{existingModalData.oldData.process}</span>
                                     <span className="text-emerald-400 font-semibold break-all">{existingModalData.newData.process}</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 pt-2">
-                                    <span className="text-brand-text-muted">Status</span>
+                                    <span className="text-brand-text-muted">{t.statusLabel}</span>
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.status}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.status}</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 pt-2">
-                                    <span className="text-brand-text-muted">Max Use</span>
+                                    <span className="text-brand-text-muted">{t.maxCounterLabel}</span>
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.maxCounter}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.maxCounter}</span>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 pt-2">
-                                    <span className="text-brand-text-muted">Max Errors</span>
+                                    <span className="text-brand-text-muted">{t.maxErrorsLabel}</span>
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.errorMaxCounter}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.errorMaxCounter}</span>
                                 </div>
+                                {Boolean((existingModalData.newData as { userKey2?: string })?.userKey2) && (
+                                    <div className="grid grid-cols-3 gap-2 pt-2">
+                                        <span className="text-brand-text-muted">{t.pnLabel}</span>
+                                        <span className="text-brand-text-muted">{t.unreadValue}</span>
+                                        <span className="text-emerald-400 font-semibold font-mono">{(existingModalData.newData as { userKey2?: string }).userKey2}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         {existingModalData.oldData.FIS && existingModalData.newData.FIS && normalizeFisTarget(existingModalData.oldData.FIS) !== normalizeFisTarget(existingModalData.newData.FIS) && (
                             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300">
-                                <strong>Zmiana serwera FIS:</strong> Master zostanie automatycznie usunięty z serwera{' '}
-                                <span className="font-mono font-bold">{existingModalData.oldData.FIS}</span> i zarejestrowany na{' '}
-                                <span className="font-mono font-bold">{existingModalData.newData.FIS}</span>.
+                                <strong>{t.fisMigrationTitle}</strong>{' '}
+                                {formatMessage(t.fisMigrationDescription, {
+                                    oldFis: existingModalData.oldData.FIS,
+                                    fis: existingModalData.newData.FIS,
+                                })}
                             </div>
                         )}
 
@@ -749,7 +1097,7 @@ export const CreateMasterView: React.FC = () => {
                                 disabled={createMutation.isPending}
                                 className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-sm font-semibold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                             >
-                                {createMutation.isPending ? 'Aktualizacja...' : 'Potwierdź Aktualizację'}
+                                {createMutation.isPending ? t.updatePending : t.confirmUpdate}
                             </button>
                         </div>
                     </div>

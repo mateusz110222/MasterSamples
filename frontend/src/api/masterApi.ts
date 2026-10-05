@@ -1,7 +1,7 @@
 import { apiRequest, API_BASE, getSessionUser } from './client.ts';
-import type { MasterUnit, HistoryRecord, ApiResponse, ResetType } from '../types';
+import type { MasterUnit, HistoryRecord, ApiResponse, ResetType, FisTarget } from '../types';
 
-export type FisTarget = 'FIS1' | 'FIS2';
+export type { FisTarget };
 
 const CREATE_MASTER_PATH = '/custom/matz/php/MasterDashboard.php';
 
@@ -28,6 +28,7 @@ export interface CreateMasterPayload {
     maxCounter: number;
     maxErrors: number;
     fis: FisTarget;
+    userKey2?: string;
     forceUpdate?: boolean;
     user?: string;
     userName?: string;
@@ -59,6 +60,7 @@ export const masterApi = {
             user: payload.user || session.uid || undefined,
             userName: payload.userName || session.name || undefined,
             userGroups: payload.userGroups || (session.groups.length > 0 ? session.groups : undefined),
+            userKey2: payload.userKey2 ? payload.userKey2.trim() : undefined,
         };
         return apiRequest(getCreateMasterUrl(payload.fis), { job: 'CreateMaster' }, {
             method: 'POST',

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
-import { Menu, UserCheck, LogOut, LogIn, UserX } from 'lucide-react';
+import { Menu, UserCheck, UserX } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { useLanguage } from '../../i18n/useLanguage';
 
@@ -13,11 +13,6 @@ export const MainLayout: React.FC = () => {
     const { language, setLanguage, t } = useLanguage();
 
     const handleLogout = () => {
-        logout();
-        navigate('/login');
-    };
-
-    const handleGoToLogin = () => {
         logout();
         navigate('/login');
     };
@@ -61,7 +56,7 @@ export const MainLayout: React.FC = () => {
 
     return (
         <div className="staff-screen flex min-h-screen flex-col bg-brand-bg font-sans text-brand-text selection:bg-brand-accent selection:text-brand-bg lg:flex-row">
-            <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
+            <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onLogout={handleLogout} />
 
             <main className="staff-main min-w-0 flex-1 space-y-6 p-4 sm:p-6 xl:p-8 w-full">
                 <header className="flex flex-wrap items-center justify-between gap-4 border-b border-brand-border/50 pb-4">
@@ -70,7 +65,7 @@ export const MainLayout: React.FC = () => {
                             type="button"
                             onClick={() => setMobileNavOpen(true)}
                             className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl border border-brand-border bg-brand-surface text-brand-accent transition-colors hover:bg-brand-surface-high lg:hidden"
-                            aria-label="Open navigation"
+                            aria-label={t.openNavigation}
                             aria-controls="mobile-navigation"
                             aria-expanded={mobileNavOpen}
                         >
@@ -91,7 +86,7 @@ export const MainLayout: React.FC = () => {
                                     language === 'PL' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                                 }`}
                             >
-                                PL
+                                {t.languagePlShort}
                             </button>
                             <button
                                 type="button"
@@ -100,7 +95,7 @@ export const MainLayout: React.FC = () => {
                                     language === 'EN' ? 'bg-brand-accent text-brand-text' : 'text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text'
                                 }`}
                             >
-                                EN
+                                {t.languageEnShort}
                             </button>
                         </div>
 
@@ -116,7 +111,7 @@ export const MainLayout: React.FC = () => {
                                     </div>
                                     <div className="min-w-0 break-words text-left">
                                         <p className="flex items-center gap-1.5 text-xs font-black leading-tight text-brand-text">
-                                            <span>{user.name || user.uid || t.guestBadge}</span>
+                                            <span>{isGuest ? t.guestBadge : user.name || user.uid}</span>
                                             {canEdit ? (
                                                 <span className="rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
                                                     ADMIN
@@ -135,27 +130,6 @@ export const MainLayout: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {isGuest ? (
-                                    <button
-                                        type="button"
-                                        onClick={handleGoToLogin}
-                                        title={t.loginActionHeader}
-                                        className="flex items-center gap-1.5 rounded-xl border border-brand-accent/40 bg-brand-accent/15 hover:bg-brand-accent hover:text-brand-text px-3 py-2 text-xs font-bold text-brand-accent transition-all cursor-pointer"
-                                    >
-                                        <LogIn size={15} />
-                                        <span className="hidden sm:inline">{t.loginActionHeader}</span>
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={handleLogout}
-                                        title={t.logoutBtn}
-                                        className="flex items-center gap-1.5 rounded-xl border border-brand-border bg-brand-surface hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 px-3 py-2 text-xs font-bold text-brand-text-muted transition-all cursor-pointer"
-                                    >
-                                        <LogOut size={15} />
-                                        <span className="hidden sm:inline">{t.logoutBtn}</span>
-                                    </button>
-                                )}
                             </div>
                         )}
                     </div>

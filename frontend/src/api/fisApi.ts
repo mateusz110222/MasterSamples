@@ -1,5 +1,5 @@
-import { apiRequest, ROUTER_API_BASE, API_BASE, setSessionUser, clearSessionUser } from './client';
-import { UserInfo, ProcessTagItem } from '../types';
+import { apiRequest, ROUTER_API_BASE, API_BASE, setSessionUser, clearSessionUser } from './client.ts';
+import type { UserInfo, ProcessTagItem, FisTarget } from '../types';
 
 interface UserInfoPayload {
     userId?: string;
@@ -93,6 +93,18 @@ export const ALLOWED_GROUPS = [
 export const FIS1_HOST = 'plblofis1.global.borgwarner.net';
 export const FIS2_HOST = 'plblofis2.global.borgwarner.net';
 
+export function getRouterUrl(fis: FisTarget = 'FIS1'): string {
+    const isClientOnFis2 = typeof window !== 'undefined' && Boolean(window?.location?.hostname?.includes('plblofis2'));
+    if (fis === 'FIS2') {
+        return isClientOnFis2
+            ? ROUTER_API_BASE
+            : 'http://plblofis2.global.borgwarner.net/custom/matz/phpBB/router.php';
+    }
+    return isClientOnFis2
+        ? 'http://plblofis1.global.borgwarner.net/custom/matz/phpBB/router.php'
+        : ROUTER_API_BASE;
+}
+
 /**
  * Returns the full Unit History URL for a given master unit.
  * Uses plblofis2.global.borgwarner.net if FIS is 2, otherwise plblofis1.global.borgwarner.net.
@@ -105,10 +117,33 @@ export function getFisUnitHistoryUrl(unit: string, fis?: string | number): strin
 }
 
 export const fisApi = {
-    getProcessTags: async (): Promise<ProcessTagItem[]> => {
-        const res = await apiRequest<unknown>(ROUTER_API_BASE, { job: 'GetProcessTags' });
+    getProcessTags: async (fis: FisTarget = 'FIS1'): Promise<ProcessTagItem[]> => {
+        const res = await apiRequest<unknown>(getRouterUrl(fis), { job: 'GetProcessTags' });
         const list = Array.isArray(res.data) ? res.data : [];
         return list.map(normalizeProcessTag).filter(item => item.key !== '');
+    },
+
+    getUserKey2Tags: async (fis: FisTarget = 'FIS1'): Promise<string[]> => {
+        const res = await apiRequest<unknown>(
+            getRouterUrl(fis),
+            { job: 'GetUserKey' },
+            {
+                method: 'POST',
+                body: JSON.stringify({ job: 'GetUserKey', Key: '2', key: '2' }),
+            }
+        );
+        const list = Array.isArray(res.data) ? res.data : [];
+        const normalized = list.map((item: unknown) => {
+            if (typeof item === 'object' && item !== null) {
+                const r = item as Record<string, unknown>;
+                return String(r.key ?? r.Key ?? r.name ?? r.tag ?? '').trim();
+            }
+            return String(item ?? '').trim();
+        }).filter(Boolean);
+
+        return Array.from(new Set(normalized)).sort((a, b) =>
+            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+        );
     },
 
     login: async (login: string, password: string): Promise<UserInfo> => {
@@ -122,7 +157,7 @@ export const fisApi = {
         );
 
         if (!res.status || !res.data) {
-            throw new Error(res.message || 'Błąd autoryzacji');
+            throw new Error(res.message || '');
         }
 
         const d = res.data;

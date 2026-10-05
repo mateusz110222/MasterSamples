@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { masterApi } from '../api/masterApi';
 import { getFisUnitHistoryUrl } from '../api/fisApi';
@@ -8,6 +9,7 @@ import { ErrorBanner } from '../components/common/ErrorBanner';
 import { getErrorMessage } from '../lib/errors';
 import { useLanguage } from '../i18n/useLanguage';
 import { Pagination } from '../components/common/Pagination';
+import { parsePaginationParams } from '../lib/masterUtils';
 import { useAdaptiveTableColumns } from '../hooks/useAdaptiveTableColumns';
 import {
     Search,
@@ -20,22 +22,78 @@ import {
 
 export const HistoryView: React.FC = () => {
     const { language, t } = useLanguage();
-    const [unitFilter, setUnitFilter] = useState('');
-    const [operationFilter, setOperationFilter] = useState('');
-    const [userFilter, setUserFilter] = useState('');
-    const [processFilter, setProcessFilter] = useState('');
-    const [statusFilter, setStatusFilter] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
-    const [pageSize, setPageSize] = useState(50);
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    // Filters derived from searchParams as single source of truth
+    const urlUnit = searchParams.get('unit') ?? '';
+    const urlProcess = searchParams.get('process') ?? '';
+    const urlUser = searchParams.get('user') ?? '';
+
+    const [unitFilter, setUnitFilter] = useState(urlUnit);
+    const [processFilter, setProcessFilter] = useState(urlProcess);
+    const [userFilter, setUserFilter] = useState(urlUser);
+
+    const operationFilter = searchParams.get('operation') ?? '';
+    const statusFilter = searchParams.get('status') ?? '';
+    const dateFrom = searchParams.get('dateFrom') ?? '';
+    const dateTo = searchParams.get('dateTo') ?? '';
+    const { page, pageSize } = parsePaginationParams(searchParams);
+
+    // Synchronize local input filters when searchParams changes externally
+    useEffect(() => {
+        if (urlUnit !== unitFilter) setUnitFilter(urlUnit);
+    }, [urlUnit]);
+    useEffect(() => {
+        if (urlProcess !== processFilter) setProcessFilter(urlProcess);
+    }, [urlProcess]);
+    useEffect(() => {
+        if (urlUser !== userFilter) setUserFilter(urlUser);
+    }, [urlUser]);
+
+    const updateFilters = (updates: Record<string, string | number | null | undefined>) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            Object.entries(updates).forEach(([key, val]) => {
+                if (
+                    val === undefined ||
+                    val === null ||
+                    val === '' ||
+                    (key === 'page' && Number(val) <= 1) ||
+                    (key === 'pageSize' && Number(val) === 50)
+                ) {
+                    next.delete(key);
+                } else {
+                    next.set(key, String(val));
+                }
+            });
+            return next;
+        }, { replace: true });
+    };
 
     const debouncedUnitFilter = useDebouncedValue(unitFilter);
     const debouncedUserFilter = useDebouncedValue(userFilter);
     const debouncedProcessFilter = useDebouncedValue(processFilter);
 
+    // Debounce text inputs sync to searchParams
+    useEffect(() => {
+        if (debouncedUnitFilter !== (searchParams.get('unit') ?? '')) {
+            updateFilters({ unit: debouncedUnitFilter, page: 1 });
+        }
+    }, [debouncedUnitFilter]);
+
+    useEffect(() => {
+        if (debouncedProcessFilter !== (searchParams.get('process') ?? '')) {
+            updateFilters({ process: debouncedProcessFilter, page: 1 });
+        }
+    }, [debouncedProcessFilter]);
+
+    useEffect(() => {
+        if (debouncedUserFilter !== (searchParams.get('user') ?? '')) {
+            updateFilters({ user: debouncedUserFilter, page: 1 });
+        }
+    }, [debouncedUserFilter]);
+
     const filtersKey = JSON.stringify([debouncedUnitFilter, operationFilter, debouncedUserFilter, debouncedProcessFilter, statusFilter, dateFrom, dateTo, pageSize]);
-    const [pagination, setPagination] = useState({ filtersKey, page: 1 });
-    const page = pagination.filtersKey === filtersKey ? pagination.page : 1;
     const tableScrollRef = useRef<HTMLTableSectionElement>(null);
     const tableRef = useRef<HTMLTableElement>(null);
     const paginationRef = useRef<HTMLDivElement>(null);
@@ -75,7 +133,7 @@ export const HistoryView: React.FC = () => {
     }, [page, isFetching, historyPage]);
     const handlePageChange = (nextPage: number) => {
         pendingPageRef.current = nextPage;
-        setPagination({ filtersKey, page: nextPage });
+        updateFilters({ page: nextPage });
         tableScrollRef.current?.scrollTo({ top: 0 });
     };
 
@@ -102,21 +160,21 @@ export const HistoryView: React.FC = () => {
     const getOperationLabel = (op: string): string => {
         switch (op.toLowerCase()) {
             case 'create':
-                return t.opCreate || 'Utworzenie';
+                return t.opCreate;
             case 'update':
-                return t.opUpdate || 'Aktualizacja';
+                return t.opUpdate;
             case 'reset':
-                return t.opReset || 'Reset Liczników';
+                return t.opReset;
             case 'resetcycles':
-                return t.opResetCycles || 'Reset Cykli';
+                return t.opResetCycles;
             case 'reseterrors':
-                return t.opResetErrors || 'Reset Błędów';
+                return t.opResetErrors;
             case 'block':
-                return t.opBlock || 'Zablokowanie';
+                return t.opBlock;
             case 'activate':
-                return t.opActivate || 'Aktywacja';
+                return t.opActivate;
             case 'delete':
-                return t.opDelete || 'Usunięcie';
+                return t.opDelete;
             default:
                 return op;
         }
@@ -124,19 +182,16 @@ export const HistoryView: React.FC = () => {
 
     const clearFilters = () => {
         setUnitFilter('');
-        setOperationFilter('');
-        setUserFilter('');
         setProcessFilter('');
-        setStatusFilter('');
-        setDateFrom('');
-        setDateTo('');
+        setUserFilter('');
+        setSearchParams({}, { replace: true });
     };
 
     const hasActiveFilters = Boolean(unitFilter || operationFilter || userFilter || processFilter || statusFilter || dateFrom || dateTo);
 
     return (
         <div className="space-y-6">
-            <ErrorBanner message={error ? getErrorMessage(error, 'Nie udało się pobrać historii.') : null} />
+            <ErrorBanner message={error ? (language === 'PL' ? getErrorMessage(error, t.historyLoadError) : t.historyLoadError) : null} />
 
             {/* Filter Bar with Date Range, Status & Process */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md space-y-3">
@@ -144,13 +199,13 @@ export const HistoryView: React.FC = () => {
                     {/* SN Search */}
                     <div className="space-y-1 flex-1 min-w-[170px]">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
-                            Numer SN
+                            {t.historySnLabel}
                         </label>
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-text-muted" size={15} />
                             <input
                                 type="text"
-                                placeholder="Szukaj SN..."
+                                placeholder={t.historySnPlaceholder}
                                 value={unitFilter}
                                 onChange={(e) => setUnitFilter(e.target.value)}
                                 className="w-full h-9 pl-9 pr-7 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent font-mono transition-all"
@@ -158,7 +213,10 @@ export const HistoryView: React.FC = () => {
                             {unitFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => setUnitFilter('')}
+                                    onClick={() => {
+                                        setUnitFilter('');
+                                        updateFilters({ unit: '', page: 1 });
+                                    }}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -170,12 +228,12 @@ export const HistoryView: React.FC = () => {
                     {/* Process Search */}
                     <div className="space-y-1 min-w-[150px]">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
-                            Proces
+                            {t.processLabel}
                         </label>
                         <div className="relative">
                             <input
                                 type="text"
-                                placeholder="np. SMT, AOI..."
+                                placeholder={t.historyProcessPlaceholder}
                                 value={processFilter}
                                 onChange={(e) => setProcessFilter(e.target.value)}
                                 className="w-full h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent font-mono transition-all"
@@ -183,7 +241,10 @@ export const HistoryView: React.FC = () => {
                             {processFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => setProcessFilter('')}
+                                    onClick={() => {
+                                        setProcessFilter('');
+                                        updateFilters({ process: '', page: 1 });
+                                    }}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -195,38 +256,38 @@ export const HistoryView: React.FC = () => {
                     {/* Operation Filter */}
                     <div className="space-y-1 min-w-[160px]">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
-                            Operacja
+                            {t.thOperation}
                         </label>
                         <select
                             value={operationFilter}
-                            onChange={(e) => setOperationFilter(e.target.value)}
+                            onChange={(e) => updateFilters({ operation: e.target.value, page: 1 })}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text focus:outline-none focus:border-brand-accent font-mono transition-colors hover:border-brand-text-muted/60 cursor-pointer"
                         >
                             <option value="">{t.allOperations}</option>
-                            <option value="Create">Create (Utworzenie)</option>
-                            <option value="Update">Update (Aktualizacja)</option>
-                            <option value="Reset">Reset (Wszystkie Liczniki)</option>
-                            <option value="ResetCycles">ResetCycles (Tylko Cykle)</option>
-                            <option value="ResetErrors">ResetErrors (Tylko Błędy)</option>
-                            <option value="Block">Block (Zablokowanie)</option>
-                            <option value="Activate">Activate (Aktywacja)</option>
-                            <option value="Delete">Delete (Usunięcie)</option>
+                            <option value="Create">{t.opCreate}</option>
+                            <option value="Update">{t.opUpdate}</option>
+                            <option value="Reset">{t.opReset}</option>
+                            <option value="ResetCycles">{t.opResetCycles}</option>
+                            <option value="ResetErrors">{t.opResetErrors}</option>
+                            <option value="Block">{t.opBlock}</option>
+                            <option value="Activate">{t.opActivate}</option>
+                            <option value="Delete">{t.opDelete}</option>
                         </select>
                     </div>
 
                     {/* Status Filter */}
                     <div className="space-y-1 min-w-[110px]">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
-                            Status
+                            {t.thStatus}
                         </label>
                         <select
                             value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                            onChange={(e) => updateFilters({ status: e.target.value, page: 1 })}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text focus:outline-none focus:border-brand-accent font-mono transition-colors hover:border-brand-text-muted/60 cursor-pointer"
                         >
                             <option value="">{t.allStatuses}</option>
-                            <option value="GOOD">GOOD</option>
-                            <option value="BAD">BAD</option>
+                            <option value="GOOD">{t.goodStatusLabel}</option>
+                            <option value="BAD">{t.badStatusLabel}</option>
                         </select>
                     </div>
 
@@ -239,7 +300,7 @@ export const HistoryView: React.FC = () => {
                         <input
                             type="date"
                             value={dateFrom}
-                            onChange={(e) => setDateFrom(e.target.value)}
+                            onChange={(e) => updateFilters({ dateFrom: e.target.value, page: 1 })}
                             className="h-9 px-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         />
                     </div>
@@ -253,7 +314,7 @@ export const HistoryView: React.FC = () => {
                         <input
                             type="date"
                             value={dateTo}
-                            onChange={(e) => setDateTo(e.target.value)}
+                            onChange={(e) => updateFilters({ dateTo: e.target.value, page: 1 })}
                             className="h-9 px-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         />
                     </div>
@@ -261,12 +322,12 @@ export const HistoryView: React.FC = () => {
                     {/* User Search */}
                     <div className="space-y-1 min-w-[140px]">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
-                            Użytkownik
+                            {t.historyUser}
                         </label>
                         <div className="relative">
                             <input
                                 type="text"
-                                placeholder="Operator..."
+                                placeholder={t.historyOperatorPlaceholder}
                                 value={userFilter}
                                 onChange={(e) => setUserFilter(e.target.value)}
                                 className="w-full h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent font-mono transition-all"
@@ -274,7 +335,10 @@ export const HistoryView: React.FC = () => {
                             {userFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => setUserFilter('')}
+                                    onClick={() => {
+                                        setUserFilter('');
+                                        updateFilters({ user: '', page: 1 });
+                                    }}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -291,10 +355,7 @@ export const HistoryView: React.FC = () => {
                         <select
                             id="history-page-size"
                             value={pageSize}
-                            onChange={(event) => {
-                                setPageSize(Number(event.target.value));
-                                setPagination({ filtersKey: '', page: 1 });
-                            }}
+                            onChange={(event) => updateFilters({ pageSize: Number(event.target.value), page: 1 })}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         >
                             {[15, 25, 50, 100, 250, 500].map(size => <option key={size} value={size}>{size}</option>)}
@@ -311,10 +372,10 @@ export const HistoryView: React.FC = () => {
                                 ? 'bg-indigo-500/20 border-brand-accent text-indigo-300 hover:bg-indigo-500/30'
                                 : 'opacity-40 cursor-not-allowed bg-brand-surface-high border-brand-border text-brand-text-muted'
                         }`}
-                        title="Wyczyść wszystkie filtry"
+                        title={t.historyClearAll}
                     >
                         <RotateCcw size={13} />
-                        <span>Wyczyść</span>
+                        <span>{t.historyClear}</span>
                     </button>
                     <button
                         type="button"
@@ -323,16 +384,16 @@ export const HistoryView: React.FC = () => {
                         className="interactive-button h-9 px-3.5 rounded-xl bg-brand-surface-high border border-brand-border text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                         <RefreshCw size={13} className={isFetching ? 'animate-spin text-brand-accent' : ''} />
-                        <span>Odśwież</span>
+                        <span>{t.refresh}</span>
                     </button>
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-brand-text-muted font-mono pt-1 border-t border-brand-border/60">
                     <span>
-                        {error ? 'Nie udało się ustalić liczby wpisów' : isLoading ? 'Ładowanie wpisów…' : `Wpisów w audycie: ${totalItems}`}
+                        {error ? t.historyCountError : isLoading ? t.historyLoadingCount : t.historyCount.replace('{count}', String(totalItems))}
                     </span>
                     {hasActiveFilters && (
-                        <span className="text-brand-accent font-medium">Aktywne filtry wyszukiwania</span>
+                        <span className="text-brand-accent font-medium">{t.historyActiveFilters}</span>
                     )}
                 </div>
             </div>
@@ -343,15 +404,15 @@ export const HistoryView: React.FC = () => {
                     <table ref={tableRef} className="split-scroll-table text-left text-[13px] border-collapse">
                         <thead>
                             <tr className="bg-brand-surface text-brand-text-muted font-mono text-xs uppercase tracking-wider border-b border-brand-border">
-                                <th className="py-3 px-4 font-semibold">Data i Czas</th>
-                                <th className="py-3 px-4 font-semibold">Numer Seryjny (Unit)</th>
-                                <th className="py-3 px-4 font-semibold">Operacja</th>
-                                <th className="py-3 px-4 font-semibold">Proces</th>
-                                <th className="py-3 px-4 font-semibold text-center">Status</th>
-                                <th className="py-3 px-4 font-semibold">Licznik Użyć</th>
-                                <th className="py-3 px-4 font-semibold">Błędy</th>
-                                <th className="py-3 px-4 font-semibold">Globalny</th>
-                                <th className="py-3 px-4 font-semibold">Użytkownik</th>
+                                <th className="py-3 px-4 font-semibold">{t.historyDateTime}</th>
+                                <th className="py-3 px-4 font-semibold">{t.historySerialUnit}</th>
+                                <th className="py-3 px-4 font-semibold">{t.thOperation}</th>
+                                <th className="py-3 px-4 font-semibold">{t.processLabel}</th>
+                                <th className="py-3 px-4 font-semibold text-center">{t.thStatus}</th>
+                                <th className="py-3 px-4 font-semibold">{t.historyCycles}</th>
+                                <th className="py-3 px-4 font-semibold">{t.historyErrors}</th>
+                                <th className="py-3 px-4 font-semibold">{t.thGlobal}</th>
+                                <th className="py-3 px-4 font-semibold">{t.historyUser}</th>
                             </tr>
                         </thead>
                         <tbody ref={tableScrollRef} className="divide-y divide-brand-border/50 text-brand-text font-mono text-[13px]">
@@ -360,20 +421,20 @@ export const HistoryView: React.FC = () => {
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted">
                                         <div className="inline-flex items-center gap-2">
                                             <RefreshCw className="animate-spin text-brand-accent" size={20} />
-                                            <span>Ładowanie rejestru audytu...</span>
+                                            <span>{t.historyLoading}</span>
                                         </div>
                                     </td>
                                 </tr>
                             ) : error ? (
                                 <tr>
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted font-sans">
-                                        Nie udało się pobrać historii. Spróbuj odświeżyć dane.
+                                        {t.historyLoadError}
                                     </td>
                                 </tr>
                             ) : visibleRecords.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted/70 font-sans">
-                                        Brak zarejestrowanych zdarzeń spełniających wybrane kryteria.
+                                        {t.historyNoMatches}
                                     </td>
                                 </tr>
                             ) : (
@@ -387,16 +448,24 @@ export const HistoryView: React.FC = () => {
                                             {rec.date}
                                         </td>
                                         <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
-                                            <a
-                                                href={getFisUnitHistoryUrl(rec.unit)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="block w-max whitespace-nowrap text-brand-accent hover:text-indigo-300 hover:underline"
-                                                title="Otwórz historię jednostki w FIS"
-                                            >
-                                                <span>{rec.unit}</span>
-                                                <ExternalLink size={12} className="ml-1 inline-block align-baseline opacity-70" />
-                                            </a>
+                                            <div className="flex items-center gap-1.5 w-max">
+                                                <Link
+                                                    to={`/?search=${encodeURIComponent(rec.unit)}`}
+                                                    className="whitespace-nowrap font-mono text-brand-accent hover:text-indigo-300 hover:underline"
+                                                    title={t.historyDashboardLink.replace('{unit}', rec.unit)}
+                                                >
+                                                    <span>{rec.unit}</span>
+                                                </Link>
+                                                {rec.FIS && ['FIS1', 'FIS2', '1', '2'].includes(rec.FIS.trim().toUpperCase()) && <a
+                                                    href={getFisUnitHistoryUrl(rec.unit, rec.FIS)}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="p-0.5 text-brand-text-muted/40 hover:text-brand-accent transition-colors"
+                                                    title={t.historyFisLink}
+                                                >
+                                                    <ExternalLink size={11} className="opacity-70" />
+                                                </a>}
+                                            </div>
                                         </td>
                                         <td className="py-3 px-4">
                                             <Badge variant={getOperationBadgeVariant(rec.operation)}>

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { refreshMasterData } from '../lib/queryCache';
 import { masterApi, normalizeFisTarget } from '../api/masterApi';
 import type { MasterUnit, ResetType } from '../types';
 
@@ -24,7 +25,7 @@ export const useMasterHistoryQuery = (unit?: string) => useQuery({
 
 export const useMasterActions = (callbacks: MasterActionCallbacks) => {
     const queryClient = useQueryClient();
-    const refreshMasters = () => queryClient.invalidateQueries({ queryKey: ['masters'] });
+    const refreshMasters = () => refreshMasterData(queryClient);
 
     const resetMutation = useMutation({
         mutationFn: ({ units, type }: { units: string[]; type: ResetType }) => masterApi.resetCounters(units, type),

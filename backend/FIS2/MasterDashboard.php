@@ -12,9 +12,15 @@
 /** @noinspection SpellCheckingInspection */
 
 /**
- * Master Samples Dashboard Backend API — FIS 2 deployment copy (PHP 5.3.3 compatible)
+ * Master Samples Dashboard Backend API — FIS 2 dedicated endpoint (PHP 5.3.3 compatible)
  * Production host: plblofis2.global.borgwarner.net
  * Production path: /custom/matz/php/MasterDashboard.php
+ *
+ * Dedicated exclusively to FIS 2 operations:
+ * - CreateMaster: registers and creates master unit in FIS 2 and database
+ * - DeleteMaster: unlinks/deletes master unit from FIS 2 (and database if not fisOnly)
+ * - GetBlockedMachines / DeleteBlockedMachine: local station lock files
+ * - Ping: diagnostics/health-check
  */
 
 use BuildingBlocks\Archive;
@@ -29,6 +35,7 @@ header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-User, X-User-Name, X-User-Groups, Accept, Origin');
 
 define('FILENAME', basename(__FILE__, '.php'));
+define('BLOCKED_MACHINES_DIR', '/fis/mantis/data/blocked_machines/');
 
 if (!function_exists('http_response_code')) {
     function http_response_code($code = null)
@@ -55,70 +62,6 @@ if ($reqMethod === 'OPTIONS') {
     exit;
 }
 
-const PALETKI_AUTH_URL = 'http://10.142.11.66:8082/auth/login';
-
-function callPaletkiAuthLogin($login, $password)
-{
-    $payload = json_encode(array(
-        'login' => $login,
-        'password' => $password,
-    ));
-
-    $ch = curl_init(PALETKI_AUTH_URL);
-    curl_setopt_array($ch, array(
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_HTTPHEADER => array(
-            'Content-Type: application/json',
-            'Accept: application/json',
-        ),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 8,
-        CURLOPT_CONNECTTIMEOUT => 4,
-    ));
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($curlError !== '') {
-        Lib::ShowError(FILENAME, "[Login] cURL error connecting to Paletki auth: " . $curlError);
-        return array(
-            'success' => false,
-            'code' => 503,
-            'message' => 'Brak połączenia z serwisem autoryzacji domenowej (Paletki)',
-        );
-    }
-
-    $data = json_decode((string)$response, true);
-    if (!is_array($data)) {
-        Lib::ShowError(FILENAME, "[Login] Invalid JSON response from Paletki auth ($httpCode): " . substr((string)$response, 0, 200));
-        return array(
-            'success' => false,
-            'code' => 502,
-            'message' => 'Nieprawidłowa odpowiedź z serwera autoryzacji',
-        );
-    }
-
-    if ($httpCode !== 200 || empty($data['status'])) {
-        $msg = isset($data['message']) ? $data['message'] : 'Nieprawidłowy login lub hasło domenowe';
-        return array(
-            'success' => false,
-            'code' => $httpCode >= 400 && $httpCode < 500 ? 401 : 502,
-            'message' => $msg,
-        );
-    }
-
-    return array(
-        'success' => true,
-        'code' => 200,
-        'data' => isset($data['data']) && is_array($data['data']) ? $data['data'] : array(),
-        'token' => isset($data['token']) ? (string)$data['token'] : '',
-        'expires_at' => isset($data['expires_at']) ? (string)$data['expires_at'] : '',
-    );
-}
-
 function getAllowedGroups()
 {
     return array(
@@ -130,7 +73,6 @@ function getAllowedGroups()
         'golden_samples'
     );
 }
-$ALLOWED_GROUPS = getAllowedGroups();
 
 function sendJsonResponse($status, $message, $data = null, $statusCode = 200)
 {
@@ -199,20 +141,13 @@ function getDbConnection($defaultDb = 'masterSample')
         $envHost = getenv('DB_HOST');
         $envUser = getenv('DB_USER');
         $envPass = getenv('DB_PASSWORD');
-        $host = $envHost ?: '127.0.0.1';
-        $user = $envUser ?: 'root';
-        $password = $envPass ?: '';
+        $host = !empty($envHost) ? $envHost : '127.0.0.1';
+        $user = !empty($envUser) ? $envUser : 'root';
+        $password = !empty($envPass) ? $envPass : '';
     }
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
     $mysqli = new mysqli($host, $user, $password, $dbName);
-    $mysqli->set_charset('utf8mb4');
-    return $mysqli;
-}
-
-function getLocalUserDbConnection()
-{
-    $mysqli = new mysqli('localhost', 'fiswww', '', 'users');
     $mysqli->set_charset('utf8mb4');
     return $mysqli;
 }
@@ -232,46 +167,6 @@ function dbRollback(mysqli $mysqli)
     $mysqli->query("ROLLBACK");
 }
 
-function stmtBindParams(mysqli_stmt $stmt, $types, array $params)
-{
-    $bindArgs = array($types);
-    foreach ($params as &$param) {
-        $bindArgs[] = &$param;
-    }
-    unset($param);
-    return call_user_func_array(array($stmt, 'bind_param'), $bindArgs);
-}
-
-function stmtFetchAllAssoc(mysqli_stmt $stmt)
-{
-    if (method_exists($stmt, 'get_result')) {
-        $res = $stmt->get_result();
-        if ($res) {
-            $rows = array();
-            while ($row = $res->fetch_assoc()) {
-                $rows[] = $row;
-            }
-            return $rows;
-        }
-    }
-    $stmt->store_result();
-    $meta = $stmt->result_metadata();
-    if (!$meta) {
-        return array();
-    }
-    $fields = array();
-    $row = array();
-    while ($field = $meta->fetch_field()) {
-        $fields[] = &$row[$field->name];
-    }
-    call_user_func_array(array($stmt, 'bind_result'), $fields);
-    $results = array();
-    while ($stmt->fetch()) {
-        $results[] = array_merge(array(), $row);
-    }
-    return $results;
-}
-
 function stmtFetchAssoc(mysqli_stmt $stmt)
 {
     if (method_exists($stmt, 'get_result')) {
@@ -289,22 +184,53 @@ function stmtFetchAssoc(mysqli_stmt $stmt)
         $fields[] = &$row[$field->name];
     }
     call_user_func_array(array($stmt, 'bind_result'), $fields);
+    $result = null;
     if ($stmt->fetch()) {
-        return array_merge(array(), $row);
+        $result = array_merge(array(), $row);
     }
-    return null;
+    return $result;
 }
 
-function queryFetchAllAssoc(mysqli $mysqli, $sql)
+function cleanUsername($username)
 {
-    $res = $mysqli->query($sql);
-    $rows = array();
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $rows[] = $row;
-        }
+    $str = trim((string)$username);
+    if ($str === '') {
+        return '';
     }
-    return $rows;
+    $slashPos = strrpos($str, '\\');
+    if ($slashPos !== false) {
+        $str = substr($str, $slashPos + 1);
+    }
+    $atPos = strpos($str, '@');
+    if ($atPos !== false) {
+        $str = substr($str, 0, $atPos);
+    }
+    return trim($str);
+}
+
+function normalizeFisValue($fis)
+{
+    $value = strtoupper(trim((string)$fis));
+    return $value === 'FIS2' ? 'FIS2' : 'FIS1';
+}
+
+function getServerFis()
+{
+    $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : (isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '');
+    if (strpos($host, 'plblofis1') !== false) {
+        return 'FIS1';
+    }
+    if (strpos($host, 'plblofis2') !== false) {
+        return 'FIS2';
+    }
+    $addr = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : '';
+    if (strpos($addr, '10.142.11.20') !== false) {
+        return 'FIS1';
+    }
+    if (strpos($addr, '10.142.11.30') !== false) {
+        return 'FIS2';
+    }
+    return null;
 }
 
 function getRequestData()
@@ -314,64 +240,70 @@ function getRequestData()
         return $input;
     }
 
-    $contentType = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '';
-    $form = Lib::getForm($contentType, FILENAME);
-    $input = array_merge($_GET, is_array($form) ? $form : array());
+    $contentType = '';
+    if (isset($_SERVER['CONTENT_TYPE'])) {
+        $contentType = $_SERVER['CONTENT_TYPE'];
+    } elseif (isset($_SERVER['HTTP_CONTENT_TYPE'])) {
+        $contentType = $_SERVER['HTTP_CONTENT_TYPE'];
+    }
+
+    $form = null;
+    if (is_callable(array('BuildingBlocks\\Lib', 'getForm'))) {
+        try {
+            $form = Lib::getForm($contentType, FILENAME);
+        } catch (Exception $e) {
+            $form = null;
+        }
+    }
+
+    if (!is_array($form) || empty($form)) {
+        $raw = file_get_contents('php://input');
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $form = $decoded;
+            }
+        }
+    }
+
+    if (!is_array($form) || empty($form)) {
+        if (isset($GLOBALS['HTTP_RAW_POST_DATA']) && !empty($GLOBALS['HTTP_RAW_POST_DATA'])) {
+            $decoded = json_decode($GLOBALS['HTTP_RAW_POST_DATA'], true);
+            if (is_array($decoded)) {
+                $form = $decoded;
+            }
+        }
+    }
+
+    if (!is_array($form) || empty($form)) {
+        if (!empty($_POST)) {
+            $form = $_POST;
+        }
+    }
+
+    if (!is_array($form)) {
+        $form = array();
+    }
+
+    $input = array_merge($_GET, $form);
     return $input;
 }
 
-function getParam(array $input, $primaryKey, $secondaryKey = null, $default = '')
+function getParam(array $source)
 {
-    if (isset($input[$primaryKey]) && $input[$primaryKey] !== '') {
-        return $input[$primaryKey];
-    }
-    if ($secondaryKey !== null && isset($input[$secondaryKey]) && $input[$secondaryKey] !== '') {
-        return $input[$secondaryKey];
-    }
-    $lowerPrimary = strtolower($primaryKey);
-    $lowerSecondary = $secondaryKey !== null ? strtolower($secondaryKey) : null;
-    foreach ($input as $k => $v) {
-        $lowerK = strtolower($k);
-        if ($lowerK === $lowerPrimary && $v !== '') {
-            return $v;
-        }
-        if ($lowerSecondary !== null && $lowerK === $lowerSecondary && $v !== '') {
-            return $v;
+    $args = func_get_args();
+    array_shift($args);
+    foreach ($args as $key) {
+        if (is_string($key) && $key !== '' && isset($source[$key]) && $source[$key] !== '') {
+            return $source[$key];
         }
     }
-    return $default;
-}
-
-function cleanUsername($user)
-{
-    $user = trim($user);
-    $slashPos = strrpos($user, '\\');
-    if ($slashPos !== false) {
-        $user = substr($user, $slashPos + 1);
+    foreach ($args as $key) {
+        if (is_string($key) && $key !== '' && isset($_REQUEST[$key]) && $_REQUEST[$key] !== '') {
+            return $_REQUEST[$key];
+        }
     }
-    $atPos = strpos($user, '@');
-    if ($atPos !== false) {
-        $user = substr($user, 0, $atPos);
-    }
-    return trim($user, " \t\n\r\0\x0B\"'");
-}
-
-function normalizeFisValue($fis)
-{
-    $val = strtoupper(trim($fis));
-    return strpos($val, '2') !== false ? 'FIS2' : 'FIS1';
-}
-
-function getServerFis()
-{
-    $host = isset($_SERVER['HTTP_HOST']) ? strtolower($_SERVER['HTTP_HOST']) : '';
-    if (strpos($host, 'plblofis2') !== false) {
-        return 'FIS2';
-    }
-    if (strpos($host, 'plblofis1') !== false) {
-        return 'FIS1';
-    }
-    return null;
+    return '';
 }
 
 function isMissingFisUnitError(Exception $error)
@@ -419,13 +351,8 @@ function getAuthenticatedUser()
     }
 
     $envRemote = getenv('REMOTE_USER');
-    $srvRemote = '';
-    if (isset($_SERVER['REMOTE_USER'])) {
-        $srvRemote = $_SERVER['REMOTE_USER'];
-    } elseif (isset($_SERVER['AUTH_USER'])) {
-        $srvRemote = $_SERVER['AUTH_USER'];
-    }
-    $remote = $envRemote ?: $srvRemote;
+    $srvRemote = isset($_SERVER['REMOTE_USER']) ? $_SERVER['REMOTE_USER'] : (isset($_SERVER['AUTH_USER']) ? $_SERVER['AUTH_USER'] : '');
+    $remote = !empty($envRemote) ? $envRemote : $srvRemote;
     $remoteUser = cleanUsername($remote);
     if ($remoteUser !== '') {
         return $remoteUser;
@@ -437,15 +364,55 @@ function getAuthenticatedUser()
 function getUserGroups($userId)
 {
     $userId = cleanUsername($userId);
-    try {
-        $groups = Lib::GetUserGroup($userId);
-        if (is_array($groups) && !empty($groups)) {
-            return array_values(array_map('strval', $groups));
+    $groups = array();
+
+    // 1. Sprawdzenie grup w lokalnej bazie FIS (jeśli użytkownik istnieje w FIS)
+    if ($userId !== '') {
+        try {
+            $dbGroups = Lib::GetUserGroup($userId);
+            if (is_array($dbGroups) && !empty($dbGroups)) {
+                $groups = array_values(array_map('strval', $dbGroups));
+            }
+        } catch (Exception $error) {
+            Lib::ShowError(FILENAME, "Lib::GetUserGroup failed for '$userId': " . $error->getMessage());
         }
-    } catch (Exception $error) {
-        Lib::ShowError(FILENAME, print_r($error, true));
     }
-    return array();
+
+    // 2. Fallback: nagłówek HTTP X-User-Groups przesłany przez frontend (autoryzacja Paletki/LDAP na FIS 1)
+    if (empty($groups) && !empty($_SERVER['HTTP_X_USER_GROUPS'])) {
+        $rawHeader = rawurldecode((string)$_SERVER['HTTP_X_USER_GROUPS']);
+        $parts = explode(',', $rawHeader);
+        foreach ($parts as $p) {
+            $trimmed = trim($p);
+            if ($trimmed !== '') {
+                $groups[] = $trimmed;
+            }
+        }
+    }
+
+    // 3. Fallback: pole userGroups w ciele żądania JSON
+    if (empty($groups)) {
+        $input = getRequestData();
+        $inputGroups = isset($input['userGroups']) ? $input['userGroups'] : null;
+        if (is_array($inputGroups)) {
+            foreach ($inputGroups as $p) {
+                $trimmed = trim((string)$p);
+                if ($trimmed !== '') {
+                    $groups[] = $trimmed;
+                }
+            }
+        } elseif (is_string($inputGroups) && trim($inputGroups) !== '') {
+            $parts = explode(',', $inputGroups);
+            foreach ($parts as $p) {
+                $trimmed = trim($p);
+                if ($trimmed !== '') {
+                    $groups[] = $trimmed;
+                }
+            }
+        }
+    }
+
+    return array_values(array_unique($groups));
 }
 
 function requireWriteAccess()
@@ -493,7 +460,10 @@ function getOperatorName()
 }
 
 $input = getRequestData();
-$job = (string)getParam($input, 'job', null, isset($_GET['job']) ? $_GET['job'] : '');
+$job = (string)getParam($input, 'job');
+if ($job === '' && isset($_GET['job'])) {
+    $job = (string)$_GET['job'];
+}
 
 if ($job === '') {
     Lib::ShowError(FILENAME, "Incoming request without 'job' parameter from IP " . (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown'));
@@ -502,314 +472,317 @@ if ($job === '') {
 
 Lib::ShowDebug(FILENAME, "[Request] job='$job', method=" . (isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '') . ", user='" . getAuthenticatedUser() . "', IP=" . (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown'));
 
-$blockedMachinesDir = '/fis/mantis/data/blocked_machines/';
-
 try {
     switch ($job) {
-        case 'Login':
-            $login = trim((string)getParam($input, 'login', 'username'));
-            $password = (string)getParam($input, 'password');
-
-            if ($login === '' || $password === '') {
-                Lib::ShowError(FILENAME, "[Login] Missing login or password");
-                sendJsonResponse(false, 'Login i hasło domenowe są wymagane', null, 400);
-            }
-
-            $authRes = callPaletkiAuthLogin($login, $password);
-            if (!$authRes['success']) {
-                Lib::ShowError(FILENAME, "[Login] Auth failed for user '$login': " . $authRes['message']);
-                sendJsonResponse(false, $authRes['message'], null, 200);
-            }
-
-            $paletkiUser = $authRes['data'];
-            $rawPaletkiUser = isset($paletkiUser['username']) ? (string)$paletkiUser['username'] : $login;
-            $cleanUser = cleanUsername($rawPaletkiUser);
-            $fullName = trim((string)(isset($paletkiUser['FullName']) ? $paletkiUser['FullName'] : ''));
-            $department = trim((string)(isset($paletkiUser['department']) ? $paletkiUser['department'] : ''));
-
-            $userGroups = getUserGroups($cleanUser);
-            $matched = array_intersect($userGroups, getAllowedGroups());
-            $canEdit = !empty($matched);
-            $email = '';
-
-            try {
-                $localDb = getLocalUserDbConnection();
-                $safeUser = $localDb->real_escape_string($cleanUser);
-                $res = $localDb->query("SELECT name, email FROM tbl_users WHERE userId = '$safeUser' LIMIT 1");
-                if ($res && ($row = $res->fetch_assoc())) {
-                    if ($fullName === '' && !empty($row['name'])) {
-                        $fullName = (string)$row['name'];
-                    }
-                    if (!empty($row['email'])) {
-                        $email = (string)$row['email'];
-                    }
-                }
-                $localDb->close();
-            } catch (Exception $error) {
-                Lib::ShowError(FILENAME, "[Login] Database lookup error for '$cleanUser': " . $error->getMessage());
-            }
-
-            if ($email === '' && strpos($rawPaletkiUser, '@') !== false) {
-                $email = $rawPaletkiUser;
-            }
-
-            if ($fullName === '') {
-                $fullName = $cleanUser;
-            }
-
-            Lib::ShowDebug(FILENAME, "[Login] User '$cleanUser' logged in successfully. canEdit=" . ($canEdit ? 'true' : 'false') . ", groups=[" . implode(', ', $userGroups) . "]");
-
-            sendJsonResponse(true, 'Zalogowano pomyślnie', array(
-                'userId' => $cleanUser,
-                'name' => $fullName,
-                'email' => $email,
-                'department' => $department,
-                'groups' => $userGroups,
-                'canEdit' => $canEdit,
-                'isGuest' => false,
-                'token' => $authRes['token'],
-                'expires_at' => $authRes['expires_at'],
+        case 'Ping':
+            $authU = getAuthenticatedUser();
+            sendJsonResponse(true, 'FIS2 MasterDashboard endpoint aktywny', array(
+                'php_version' => PHP_VERSION,
+                'server_fis' => getServerFis(),
+                'user' => $authU,
+                'groups' => getUserGroups($authU),
+                'input_keys' => array_keys($input),
             ));
             break;
 
-        case 'GetMasters':
-            $statusFilter = isset($input['status']) ? $input['status'] : '';
-            $processFilter = isset($input['process']) ? $input['process'] : '';
-            $activeFilter = (isset($input['isactive']) && $input['isactive'] !== '') ? (int)$input['isactive'] : null;
-            $search = isset($input['search']) ? trim($input['search']) : '';
-
-            $where = array();
-            $types = '';
-            $params = array();
-
-            if ($statusFilter !== '') {
-                $where[] = "status = ?";
-                $types .= 's';
-                $params[] = $statusFilter;
+        case 'GetBlockedMachines':
+            if (!is_dir(BLOCKED_MACHINES_DIR) || !is_readable(BLOCKED_MACHINES_DIR)) {
+                sendJsonResponse(false, 'Katalog blokad FIS 2 jest niedostępny', null, 500);
             }
-            if ($processFilter !== '') {
-                $where[] = "process LIKE ?";
-                $types .= 's';
-                $params[] = '%' . $processFilter . '%';
+            $files = scandir(BLOCKED_MACHINES_DIR);
+            if ($files === false) {
+                sendJsonResponse(false, 'Nie można odczytać blokad FIS 2', null, 500);
             }
-            if ($activeFilter !== null) {
-                $where[] = "isactive = ?";
-                $types .= 'i';
-                $params[] = $activeFilter;
+            $items = array();
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..' || strpos($file, '10.237.') !== false) {
+                    continue;
+                }
+                $fullPath = BLOCKED_MACHINES_DIR . $file;
+                if (is_link($fullPath) || !is_file($fullPath)) {
+                    continue;
+                }
+                $lastUnderscore = strrpos($file, '_');
+                $machine = $lastUnderscore !== false ? substr($file, 0, $lastUnderscore) : $file;
+                $prefix = $lastUnderscore !== false ? substr($file, $lastUnderscore + 1) : 'MASTER';
+                $mtime = filemtime($fullPath);
+                $items[] = array(
+                    'id' => $file,
+                    'filename' => $file,
+                    'machine' => $machine !== '' ? $machine : 'UNKNOWN',
+                    'prefix' => $prefix !== '' ? $prefix : 'MASTER',
+                    'blockedAt' => $mtime ? date('Y-m-d H:i:s', $mtime) : null,
+                    'size' => filesize($fullPath),
+                    'FIS' => 'FIS2'
+                );
             }
-            if ($search !== '') {
-                $where[] = "(unit LIKE ? OR process LIKE ? OR user LIKE ?)";
-                $types .= 'sss';
-                $searchParam = '%' . $search . '%';
-                $params[] = $searchParam;
-                $params[] = $searchParam;
-                $params[] = $searchParam;
-            }
-
-            $sql = "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS FROM masterUnits";
-            if (!empty($where)) {
-                $sql .= " WHERE " . implode(" AND ", $where);
-            }
-            $sql .= " ORDER BY id DESC";
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare($sql);
-            if (!empty($params)) {
-                stmtBindParams($stmt, $types, $params);
-            }
-            $stmt->execute();
-            $rows = stmtFetchAllAssoc($stmt);
-            $stmt->close();
-            $mysqli->close();
-
-            sendJsonResponse(true, 'Lista masterów pobrana', $rows);
+            sendJsonResponse(true, 'Pobrano zablokowane maszyny FIS 2', $items);
             break;
 
-        case 'ResetCounters':
-            $rawUnits = getParam($input, 'units', 'unit');
-            if (empty($rawUnits) && isset($input['serialNumber'])) {
-                $rawUnits = $input['serialNumber'];
-            }
+        case 'DeleteBlockedMachine':
             $user = requireWriteAccess();
-            $operatorName = getOperatorName();
-            $rt = isset($input['resetType']) ? $input['resetType'] : 'all';
-            $resetType = strtolower(trim($rt));
+            $record = trim((string)getParam($input, 'record', 'filename'));
+            if ($record === '' || $record === '.' || $record === '..' ||
+                strpos($record, '/') !== false || strpos($record, chr(92)) !== false || strpos($record, chr(0)) !== false) {
+                sendJsonResponse(false, 'Nieprawidłowa nazwa pliku blokady', null, 400);
+            }
+            $targetPath = BLOCKED_MACHINES_DIR . $record;
+            if (is_link($targetPath) || !is_file($targetPath)) {
+                sendJsonResponse(false, "Plik blokady '$record' nie istnieje lub nie jest zwykłym plikiem", null, 404);
+            }
+            Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Unblocking FIS2 record='$record' by user='$user'");
+            if (!@unlink($targetPath)) {
+                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Failed to unlink '$targetPath'");
+                sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
+            }
+            sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta!");
+            break;
 
-            if (empty($rawUnits)) {
-                Lib::ShowError(FILENAME, "[ResetCounters] Missing units parameter");
-                sendJsonResponse(false, 'Brak jednostek do zresetowania', null, 400);
+        case 'CreateMaster':
+            $user = requireWriteAccess();
+            $unit = strtoupper(trim(getParam($input, 'unit', 'serialNumber')));
+            $processList = trim(getParam($input, 'process', 'processName'));
+            $statusInput = isset($input['status']) ? $input['status'] : 'GOOD';
+            if (!is_string($statusInput)) {
+                sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
+            }
+            $status = strtoupper(trim($statusInput));
+            $maxCounter = filter_var(isset($input['maxCounter']) ? $input['maxCounter'] : 1000, FILTER_VALIDATE_INT, array(
+                'options' => array('min_range' => 1, 'max_range' => 2147483647)
+            ));
+            $rawErrors = isset($input['maxErrors']) ? $input['maxErrors'] : (isset($input['errorMaxCounter']) ? $input['errorMaxCounter'] : 50);
+            $errorMaxCounter = filter_var($rawErrors, FILTER_VALIDATE_INT, array(
+                'options' => array('min_range' => 1, 'max_range' => 2147483647)
+            ));
+            $forceUpdate = !empty($input['forceUpdate']);
+
+            if (!in_array($status, array('GOOD', 'BAD'), true)) {
+                sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
+            }
+            if ($maxCounter === false || $errorMaxCounter === false) {
+                sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647.', null, 400);
             }
 
-            $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
-            if (empty($unitList)) {
-                Lib::ShowError(FILENAME, "[ResetCounters] No valid units found in: " . var_export($rawUnits, true));
-                sendJsonResponse(false, 'Brak poprawnych jednostek', null, 400);
+            if ($unit === '' || $processList === '') {
+                Lib::ShowError(FILENAME, "[CreateMaster] Validation error: SN or process is empty (unit='$unit', process='$processList')");
+                sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
             }
 
-            Lib::ShowDebug(FILENAME, "[ResetCounters] Start resetting unit(s): [" . implode(', ', $unitList) . "], type='$resetType', operator='$operatorName'");
-            $operationName = 'Reset';
-            if ($resetType === 'cycles') {
-                $operationName = 'ResetCycles';
-            } elseif ($resetType === 'errors') {
-                $operationName = 'ResetErrors';
+            $fRaw = getParam($input, 'fis');
+            $fisValue = $fRaw !== '' ? strtoupper(trim($fRaw)) : 'FIS2';
+            if (!in_array($fisValue, array('FIS1', 'FIS2'), true)) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Invalid target FIS: '$fisValue'");
+                sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
+
+            $userKey2 = trim((string)getParam($input, 'userKey2', 'userkey2', 'pn'));
+
+            $updFlag = $forceUpdate ? '1' : '0';
+            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=$updFlag, user='$user', userKey2='$userKey2'");
+
+            $serverFis = getServerFis();
+            if ($serverFis !== null && $serverFis !== $fisValue) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Target mismatch: request for $fisValue hit server $serverFis");
+                sendJsonResponse(
+                    false,
+                    "Żądanie utworzenia dla $fisValue trafiło do $serverFis.",
+                    array('expected_fis' => $fisValue),
+                    409
+                );
+            }
+
+            $processArray = array_filter(array_map('trim', explode(',', $processList)));
+            $processClean = implode(',', $processArray);
 
             $mysqli = getDbConnection();
-            dbBegin($mysqli);
-            try {
-                $resetCount = 0;
-                foreach ($unitList as $unit) {
-                    $stmtCheck = $mysqli->prepare("SELECT isactive FROM masterUnits WHERE unit = ? LIMIT 1");
-                    $stmtCheck->bind_param('s', $unit);
-                    $stmtCheck->execute();
-                    $checkRow = stmtFetchAssoc($stmtCheck);
-                    $stmtCheck->close();
+            $stmtCheck = $mysqli->prepare("SELECT unit, process, status, maxCounter, errorMaxCounter, isactive, FIS FROM masterUnits WHERE unit = ? LIMIT 1");
+            $stmtCheck->bind_param('s', $unit);
+            $stmtCheck->execute();
+            $existing = stmtFetchAssoc($stmtCheck);
+            $stmtCheck->close();
 
-                    if (!$checkRow || (int)$checkRow['isactive'] === 2) {
-                        Lib::ShowDebug(FILENAME, "[ResetCounters] Skipping inactive/blocked unit '$unit'");
-                        continue;
+            if ($existing && !$forceUpdate) {
+                $mysqli->close();
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit '$unit' already exists in database. Returning conflict comparison.");
+                sendJsonResponse(true, 'Master o tym numerze już istnieje w bazie', array(
+                    'exists' => true,
+                    'oldData' => $existing,
+                    'newData' => array(
+                        'unit' => $unit,
+                        'process' => $processClean,
+                        'status' => $status,
+                        'maxCounter' => $maxCounter,
+                        'errorMaxCounter' => $errorMaxCounter,
+                        'FIS' => $fisValue,
+                        'userKey2' => $userKey2
+                    )
+                ));
+            }
+
+            $unitExistsInFis = false;
+            $fisUnitDeleted = false;
+            try {
+                Unit::Find($unit);
+                $unitExistsInFis = true;
+            } catch (Exception $findError) {
+                if (!isMissingFisUnitError($findError)) {
+                    $mysqli->close();
+                    Lib::ShowError(FILENAME, "[CreateMaster] Unit::Find failed for '$unit': " . $findError->getMessage());
+                    throw new ApiOperationException(
+                        formatOperationError('CreateMaster', 'Unit::Find', $unit, $fisValue, $findError),
+                        502,
+                        array('fis' => $fisValue, 'stage' => 'find'),
+                        $findError
+                    );
+                }
+
+                try {
+                    Archive::GetAll($unit);
+                    Archive::Unarchive($unit);
+                    Unit::Find($unit);
+                    $unitExistsInFis = true;
+                } catch (Exception $archiveError) {
+                    if (!isMissingFisUnitError($archiveError)) {
+                        $mysqli->close();
+                        Lib::ShowError(FILENAME, "[CreateMaster] Archive::Unarchive failed for '$unit': " . $archiveError->getMessage());
+                        throw new ApiOperationException(
+                            formatOperationError('CreateMaster', 'Archive::Unarchive', $unit, $fisValue, $archiveError),
+                            502,
+                            array('fis' => $fisValue, 'stage' => 'unarchive'),
+                            $archiveError
+                        );
                     }
+                }
+            }
 
-                    $stmtHist = $mysqli->prepare(
-                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
-                         FROM masterUnits WHERE unit = ?"
+            if ($unitExistsInFis) {
+                try {
+                    Unit::Delete($unit);
+                    $fisUnitDeleted = true;
+                    Lib::ShowDebug(FILENAME, "[CreateMaster] Existing unit '$unit' deleted from FIS prior to recreation");
+                } catch (Exception $deleteError) {
+                    $mysqli->close();
+                    Lib::ShowError(FILENAME, "[CreateMaster] Deletion of existing unit '$unit' failed: " . $deleteError->getMessage());
+                    throw new ApiOperationException(
+                        formatOperationError('CreateMaster', 'Unit::Delete', $unit, $fisValue, $deleteError),
+                        502,
+                        array('fis' => $fisValue, 'stage' => 'delete_existing'),
+                        $deleteError
                     );
-                    $stmtHist->bind_param('sss', $operatorName, $operationName, $unit);
-                    $stmtHist->execute();
-                    $stmtHist->close();
-
-                    if ($resetType === 'cycles') {
-                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0 WHERE unit = ?");
-                    } elseif ($resetType === 'errors') {
-                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET errorCounter = 0 WHERE unit = ?");
-                    } else {
-                        $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET currentCounter = 0, errorCounter = 0 WHERE unit = ?");
-                    }
-                    $stmtUpdate->bind_param('s', $unit);
-                    $stmtUpdate->execute();
-                    $stmtUpdate->close();
-
-                    $resetCount++;
                 }
+            }
 
-                dbCommit($mysqli);
+            $creatorName = getOperatorName();
+            $dcmods = 'MS_HISTORY|' . $unit . '_MASTER|MS_PROCESS|' . $processClean . '|MS_STATUS|' . $status . '|OPERATOR|' . $creatorName;
+            try {
+                Unit::DataEntry(
+                    $unit,
+                    "CREATEUNIT",
+                    "WEB",
+                    $dcmods,
+                    "GOLD",
+                    "",
+                    $userKey2,
+                    "GOLDEN"
+                );
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit::DataEntry succeeded for '$unit'");
+            } catch (Exception $dataEntryError) {
                 $mysqli->close();
-                Lib::ShowDebug(FILENAME, "[ResetCounters] Succeeded: Reset $resetCount unit(s) (type='$resetType')");
-
-                $msg = "Wyzerowano wszystkie liczniki ($resetCount sztuk)";
-                if ($resetType === 'cycles') {
-                    $msg = "Wyzerowano liczniki cykli ($resetCount sztuk)";
-                } elseif ($resetType === 'errors') {
-                    $msg = "Wyzerowano liczniki błędów ($resetCount sztuk)";
-                }
-
-                sendJsonResponse(true, $msg, array('count' => $resetCount, 'resetType' => $resetType));
-            } catch (Exception $err) {
-                dbRollback($mysqli);
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[ResetCounters] Failed: " . $err->getMessage());
-                throw $err;
-            }
-            break;
-
-        case 'BlockMaster':
-            $rawUnits = getParam($input, 'units', 'unit');
-            if (empty($rawUnits) && isset($input['serialNumber'])) {
-                $rawUnits = $input['serialNumber'];
-            }
-            $user = requireWriteAccess();
-            $operatorName = getOperatorName();
-
-            if (empty($rawUnits)) {
-                Lib::ShowError(FILENAME, "[BlockMaster] Missing units parameter");
-                sendJsonResponse(false, 'Brak jednostek do zablokowania', null, 400);
+                Lib::ShowError(FILENAME, "[CreateMaster] Unit::DataEntry failed for '$unit': " . $dataEntryError->getMessage());
+                $state = $fisUnitDeleted
+                    ? 'previous_unit_deleted=true, new_unit_created=false; retry_required=true'
+                    : 'previous_unit_deleted=false, new_unit_created=false';
+                $message = formatOperationError(
+                    'CreateMaster',
+                    'Unit::DataEntry',
+                    $unit,
+                    $fisValue,
+                    $dataEntryError,
+                    $state
+                );
+                throw new ApiOperationException(
+                    $message,
+                    502,
+                    array(
+                        'fis' => $fisValue,
+                        'stage' => 'create_unit',
+                        'previous_unit_deleted' => $fisUnitDeleted,
+                        'database_updated' => false
+                    ),
+                    $dataEntryError
+                );
             }
 
-            $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
-            Lib::ShowDebug(FILENAME, "[BlockMaster] Start blocking unit(s): [" . implode(', ', $unitList) . "], operator='$operatorName'");
-            $mysqli = getDbConnection();
             dbBegin($mysqli);
             try {
-                foreach ($unitList as $unit) {
-                    $stmtHist = $mysqli->prepare(
-                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Block', NOW()
-                         FROM masterUnits WHERE unit = ?"
-                    );
-                    $stmtHist->bind_param('ss', $operatorName, $unit);
-                    $stmtHist->execute();
-                    $stmtHist->close();
+                $sqlUnit = "INSERT INTO masterUnits
+                                (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS)
+                            VALUES
+                                (?, ?, ?, 0, ?, 0, ?, 0, ?, 1, ?)
+                            ON DUPLICATE KEY UPDATE
+                                process = VALUES(process),
+                                status = VALUES(status),
+                                maxCounter = VALUES(maxCounter),
+                                errorMaxCounter = VALUES(errorMaxCounter),
+                                user = IF(user IS NULL OR user = '', VALUES(user), user),
+                                FIS = VALUES(FIS),
+                                isactive = 1";
 
-                    $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 2 WHERE unit = ?");
-                    $stmtUpdate->bind_param('s', $unit);
-                    $stmtUpdate->execute();
-                    $stmtUpdate->close();
-                }
+                $stmtSave = $mysqli->prepare($sqlUnit);
+                $stmtSave->bind_param('sssiiss', $unit, $processClean, $status, $maxCounter, $errorMaxCounter, $creatorName, $fisValue);
+                $stmtSave->execute();
+                $stmtSave->close();
 
-                dbCommit($mysqli);
-                $mysqli->close();
-                Lib::ShowDebug(FILENAME, "[BlockMaster] Succeeded for unit(s): [" . implode(', ', $unitList) . "]");
-                sendJsonResponse(true, "Zablokowano mastera (isActive=2)!");
-            } catch (Exception $err) {
-                dbRollback($mysqli);
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[BlockMaster] Failed: " . $err->getMessage());
-                throw $err;
-            }
-            break;
+                $operation = $existing ? 'Update' : 'Create';
+                $sqlHist = "INSERT INTO history
+                                (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                            SELECT
+                                unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, ?, NOW()
+                            FROM masterUnits WHERE unit = ?";
+                $stmtHist = $mysqli->prepare($sqlHist);
+                $stmtHist->bind_param('sss', $creatorName, $operation, $unit);
+                $stmtHist->execute();
+                $stmtHist->close();
 
-        case 'ActivateMaster':
-            $rawUnits = getParam($input, 'units', 'unit');
-            if (empty($rawUnits) && isset($input['serialNumber'])) {
-                $rawUnits = $input['serialNumber'];
-            }
-            $user = requireWriteAccess();
-            $operatorName = getOperatorName();
-
-            if (empty($rawUnits)) {
-                Lib::ShowError(FILENAME, "[ActivateMaster] Missing units parameter");
-                sendJsonResponse(false, 'Brak jednostek do aktywacji', null, 400);
-            }
-
-            $unitList = is_array($rawUnits) ? $rawUnits : array_filter(array_map('trim', explode(',', $rawUnits)));
-            Lib::ShowDebug(FILENAME, "[ActivateMaster] Start activating unit(s): [" . implode(', ', $unitList) . "], operator='$operatorName'");
-            $mysqli = getDbConnection();
-            dbBegin($mysqli);
-            try {
-                foreach ($unitList as $unit) {
-                    $stmtHist = $mysqli->prepare(
-                        "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                         SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Activate', NOW()
-                         FROM masterUnits WHERE unit = ?"
-                    );
-                    $stmtHist->bind_param('ss', $operatorName, $unit);
-                    $stmtHist->execute();
-                    $stmtHist->close();
-
-                    $stmtUpdate = $mysqli->prepare("UPDATE masterUnits SET isactive = 1 WHERE unit = ?");
-                    $stmtUpdate->bind_param('s', $unit);
-                    $stmtUpdate->execute();
-                    $stmtUpdate->close();
-                }
+                $stmtEng = $mysqli->prepare("INSERT IGNORE INTO engineers (process) VALUES (?)");
+                $stmtEng->bind_param('s', $processClean);
+                $stmtEng->execute();
+                $stmtEng->close();
 
                 dbCommit($mysqli);
                 $mysqli->close();
-                Lib::ShowDebug(FILENAME, "[ActivateMaster] Succeeded for unit(s): [" . implode(', ', $unitList) . "]");
-                sendJsonResponse(true, "Jednostki zostały aktywowane (isActive=1)!");
+                Lib::ShowDebug(FILENAME, "[CreateMaster] Succeeded: Master '$unit' saved in database and FIS ($operation)");
+
+                $actionMsg = $existing ? "Master '$unit' został pomyślnie zaktualizowany!" : "Master '$unit' został pomyślnie utworzony i zarejestrowany!";
+                sendJsonResponse(true, $actionMsg, array('unit' => $unit, 'operation' => $operation, 'FIS' => $fisValue));
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
-                Lib::ShowError(FILENAME, "[ActivateMaster] Failed: " . $err->getMessage());
-                throw $err;
+                Lib::ShowError(FILENAME, "[CreateMaster] Database transaction failed for '$unit': " . $err->getMessage());
+                throw new ApiOperationException(
+                    formatOperationError(
+                        'CreateMaster',
+                        'database_save',
+                        $unit,
+                        $fisValue,
+                        $err,
+                        'fis_updated=true, database_updated=false; retry_required=true'
+                    ),
+                    500,
+                    array(
+                        'fis' => $fisValue,
+                        'stage' => 'database_save',
+                        'fis_updated' => true,
+                        'database_updated' => false
+                    ),
+                    $err
+                );
             }
             break;
 
         case 'DeleteMaster':
-            $input = getRequestData();
-            $rawUnit = getParam($input, 'unit', 'serialNumber', isset($_REQUEST['unit']) ? $_REQUEST['unit'] : '');
-            $unit = trim($rawUnit);
             $user = requireWriteAccess();
+            $unit = trim(getParam($input, 'unit', 'serialNumber'));
 
             if ($unit === '') {
                 Lib::ShowError(FILENAME, "[DeleteMaster] Missing unit parameter");
@@ -904,8 +877,8 @@ try {
             dbBegin($mysqli);
             try {
                 $stmtHist = $mysqli->prepare(
-                    "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                     SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, 'Delete', NOW()
+                    "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                     SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Delete', NOW()
                      FROM masterUnits WHERE unit = ?"
                 );
                 $stmtHist->bind_param('ss', $user, $unit);
@@ -958,553 +931,9 @@ try {
             }
             break;
 
-        case 'CreateMaster':
-            $user = requireWriteAccess();
-            $input = getRequestData();
-            $rawUnit = getParam($input, 'unit', 'serialNumber', isset($_REQUEST['unit']) ? $_REQUEST['unit'] : '');
-            $unit = strtoupper(trim($rawUnit));
-            $rawProc = getParam($input, 'process', 'processName', isset($_REQUEST['process']) ? $_REQUEST['process'] : '');
-            $processList = trim($rawProc);
-            $st = isset($input['status']) ? $input['status'] : (isset($_REQUEST['status']) ? $_REQUEST['status'] : 'GOOD');
-            $status = strtoupper(trim($st));
-            $maxCounter = isset($input['maxCounter']) ? (int)$input['maxCounter'] : (isset($_REQUEST['maxCounter']) ? (int)$_REQUEST['maxCounter'] : 1000);
-            $rawErrors = getParam($input, 'maxErrors', 'errorMaxCounter', isset($_REQUEST['maxErrors']) ? $_REQUEST['maxErrors'] : 50);
-            $errorMaxCounter = (int)$rawErrors;
-            $forceUpdate = !empty($input['forceUpdate']) || !empty($_REQUEST['forceUpdate']);
-
-            if ($unit === '' || $processList === '') {
-                Lib::ShowError(FILENAME, "[CreateMaster] Validation error: SN or process is empty (unit='$unit', process='$processList')");
-                sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
-            }
-
-            $fRaw = isset($input['fis']) ? $input['fis'] : 'FIS2';
-            $fisValue = strtoupper(trim($fRaw));
-            if (!in_array($fisValue, array('FIS1', 'FIS2'), true)) {
-                Lib::ShowError(FILENAME, "[CreateMaster] Invalid target FIS: '$fisValue'");
-                sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
-            }
-
-            $updFlag = $forceUpdate ? '1' : '0';
-            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=$updFlag, user='$user'");
-
-            $serverFis = getServerFis();
-            if ($serverFis !== null && $serverFis !== $fisValue) {
-                Lib::ShowError(FILENAME, "[CreateMaster] Target mismatch: request for $fisValue hit server $serverFis");
-                sendJsonResponse(
-                    false,
-                    "Żądanie utworzenia dla $fisValue trafiło do $serverFis.",
-                    array('expected_fis' => $fisValue),
-                    409
-                );
-            }
-
-            $processArray = array_filter(array_map('trim', explode(',', $processList)));
-            $processClean = implode(',', $processArray);
-
-            $mysqli = getDbConnection();
-            $stmtCheck = $mysqli->prepare("SELECT unit, process, status, maxCounter, errorMaxCounter, isactive, FIS FROM masterUnits WHERE unit = ? LIMIT 1");
-            $stmtCheck->bind_param('s', $unit);
-            $stmtCheck->execute();
-            $existing = stmtFetchAssoc($stmtCheck);
-            $stmtCheck->close();
-
-            if ($existing && !$forceUpdate) {
-                $mysqli->close();
-                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit '$unit' already exists in database. Returning conflict comparison.");
-                sendJsonResponse(true, 'Master o tym numerze już istnieje w bazie', array(
-                    'exists' => true,
-                    'oldData' => $existing,
-                    'newData' => array(
-                        'unit' => $unit,
-                        'process' => $processClean,
-                        'status' => $status,
-                        'maxCounter' => $maxCounter,
-                        'errorMaxCounter' => $errorMaxCounter,
-                        'FIS' => $fisValue
-                    )
-                ));
-            }
-
-            $unitExistsInFis = false;
-            $fisUnitDeleted = false;
-            try {
-                Unit::Find($unit);
-                $unitExistsInFis = true;
-            } catch (Exception $findError) {
-                if (!isMissingFisUnitError($findError)) {
-                    $mysqli->close();
-                    Lib::ShowError(FILENAME, "[CreateMaster] Unit::Find failed for '$unit': " . $findError->getMessage());
-                    throw new ApiOperationException(
-                        formatOperationError('CreateMaster', 'Unit::Find', $unit, $fisValue, $findError),
-                        502,
-                        array('fis' => $fisValue, 'stage' => 'find'),
-                        $findError
-                    );
-                }
-
-                try {
-                    Archive::GetAll($unit);
-                    Archive::Unarchive($unit);
-                    Unit::Find($unit);
-                    $unitExistsInFis = true;
-                } catch (Exception $archiveError) {
-                    if (!isMissingFisUnitError($archiveError)) {
-                        $mysqli->close();
-                        Lib::ShowError(FILENAME, "[CreateMaster] Archive::Unarchive failed for '$unit': " . $archiveError->getMessage());
-                        throw new ApiOperationException(
-                            formatOperationError('CreateMaster', 'Archive::Unarchive', $unit, $fisValue, $archiveError),
-                            502,
-                            array('fis' => $fisValue, 'stage' => 'unarchive'),
-                            $archiveError
-                        );
-                    }
-                }
-            }
-
-            if ($unitExistsInFis) {
-                try {
-                    Unit::Delete($unit);
-                    $fisUnitDeleted = true;
-                    Lib::ShowDebug(FILENAME, "[CreateMaster] Existing unit '$unit' deleted from FIS prior to recreation");
-                } catch (Exception $deleteError) {
-                    $mysqli->close();
-                    Lib::ShowError(FILENAME, "[CreateMaster] Deletion of existing unit '$unit' failed: " . $deleteError->getMessage());
-                    throw new ApiOperationException(
-                        formatOperationError('CreateMaster', 'Unit::Delete', $unit, $fisValue, $deleteError),
-                        502,
-                        array('fis' => $fisValue, 'stage' => 'delete_existing'),
-                        $deleteError
-                    );
-                }
-            }
-
-            $creatorName = getOperatorName();
-            $dcmods = 'MS_HISTORY|' . $unit . '_MASTER|MS_PROCESS|' . $processClean . '|MS_STATUS|' . $status . '|OPERATOR|' . $creatorName;
-            try {
-                Unit::DataEntry(
-                    $unit,
-                    "CREATEUNIT",
-                    "WEB",
-                    $dcmods,
-                    "GOLD",
-                    "",
-                    "",
-                    "GOLDEN"
-                );
-                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit::DataEntry succeeded for '$unit'");
-            } catch (Exception $dataEntryError) {
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[CreateMaster] Unit::DataEntry failed for '$unit': " . $dataEntryError->getMessage());
-                $state = $fisUnitDeleted
-                    ? 'previous_unit_deleted=true, new_unit_created=false; retry_required=true'
-                    : 'previous_unit_deleted=false, new_unit_created=false';
-                $message = formatOperationError(
-                    'CreateMaster',
-                    'Unit::DataEntry',
-                    $unit,
-                    $fisValue,
-                    $dataEntryError,
-                    $state
-                );
-                throw new ApiOperationException(
-                    $message,
-                    502,
-                    array(
-                        'fis' => $fisValue,
-                        'stage' => 'create_unit',
-                        'previous_unit_deleted' => $fisUnitDeleted,
-                        'database_updated' => false
-                    ),
-                    $dataEntryError
-                );
-            }
-
-            dbBegin($mysqli);
-            try {
-                $sqlUnit = "INSERT INTO masterUnits
-                                (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS)
-                            VALUES
-                                (?, ?, ?, 0, ?, 0, ?, 0, ?, 1, ?)
-                            ON DUPLICATE KEY UPDATE
-                                process = VALUES(process),
-                                status = VALUES(status),
-                                maxCounter = VALUES(maxCounter),
-                                errorMaxCounter = VALUES(errorMaxCounter),
-                                user = IF(user IS NULL OR user = '', VALUES(user), user),
-                                FIS = VALUES(FIS),
-                                isactive = 1";
-
-                $stmtSave = $mysqli->prepare($sqlUnit);
-                $stmtSave->bind_param('sssiiss', $unit, $processClean, $status, $maxCounter, $errorMaxCounter, $creatorName, $fisValue);
-                $stmtSave->execute();
-                $stmtSave->close();
-
-                $operation = $existing ? 'Update' : 'Create';
-                $sqlHist = "INSERT INTO history
-                                (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`)
-                            SELECT
-                                unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, ?, ?, NOW()
-                            FROM masterUnits WHERE unit = ?";
-                $stmtHist = $mysqli->prepare($sqlHist);
-                $stmtHist->bind_param('sss', $creatorName, $operation, $unit);
-                $stmtHist->execute();
-                $stmtHist->close();
-
-                $stmtEng = $mysqli->prepare("INSERT IGNORE INTO engineers (process) VALUES (?)");
-                $stmtEng->bind_param('s', $processClean);
-                $stmtEng->execute();
-                $stmtEng->close();
-
-                dbCommit($mysqli);
-                $mysqli->close();
-                Lib::ShowDebug(FILENAME, "[CreateMaster] Succeeded: Master '$unit' saved in database and FIS ($operation)");
-
-                $actionMsg = $existing ? "Master '$unit' został pomyślnie zaktualizowany!" : "Master '$unit' został pomyślnie utworzony i zarejestrowany!";
-                sendJsonResponse(true, $actionMsg, array('unit' => $unit, 'operation' => $operation, 'FIS' => $fisValue));
-            } catch (Exception $err) {
-                dbRollback($mysqli);
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[CreateMaster] Database transaction failed for '$unit': " . $err->getMessage());
-                throw new ApiOperationException(
-                    formatOperationError(
-                        'CreateMaster',
-                        'database_save',
-                        $unit,
-                        $fisValue,
-                        $err,
-                        'fis_updated=true, database_updated=false; retry_required=true'
-                    ),
-                    500,
-                    array(
-                        'fis' => $fisValue,
-                        'stage' => 'database_save',
-                        'fis_updated' => true,
-                        'database_updated' => false
-                    ),
-                    $err
-                );
-            }
-            break;
-
-        /* =========================================================================
-         * 2. HISTORY & AUDIT LOGS
-         * ========================================================================= */
-        case 'GetMasterHistory':
-            $rawUnit = isset($input['unit']) ? $input['unit'] : '';
-            $unit = trim($rawUnit);
-            if ($unit === '') {
-                sendJsonResponse(false, 'Brak parametru unit', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare(
-                "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date`
-                 FROM history
-                 WHERE unit = ?
-                 ORDER BY `date` DESC, id DESC"
-            );
-            $stmt->bind_param('s', $unit);
-            $stmt->execute();
-            $rows = stmtFetchAllAssoc($stmt);
-            $stmt->close();
-            $mysqli->close();
-
-            sendJsonResponse(true, "Historia dla jednostki '$unit'", $rows);
-            break;
-
-        case 'GetHistory':
-            $limit = isset($input['limit']) ? max(1, min(500, (int)$input['limit'])) : 100;
-            $offset = isset($input['offset']) ? max(0, (int)$input['offset']) : 0;
-            $unitFilter = isset($input['unit']) ? trim($input['unit']) : '';
-            $opFilter = isset($input['operation']) ? trim($input['operation']) : '';
-            $userFilter = isset($input['user']) ? trim($input['user']) : '';
-            $processFilter = isset($input['process']) ? trim($input['process']) : '';
-            $statusFilter = isset($input['status']) ? trim($input['status']) : '';
-            $dateFrom = isset($input['dateFrom']) ? trim($input['dateFrom']) : '';
-            $dateTo = isset($input['dateTo']) ? trim($input['dateTo']) : '';
-
-            $where = array();
-            $types = '';
-            $params = array();
-
-            if ($unitFilter !== '') {
-                $where[] = "unit LIKE ?";
-                $types .= 's';
-                $params[] = '%' . $unitFilter . '%';
-            }
-            if ($opFilter !== '') {
-                $where[] = "operation = ?";
-                $types .= 's';
-                $params[] = $opFilter;
-            }
-            if ($userFilter !== '') {
-                $where[] = "user LIKE ?";
-                $types .= 's';
-                $params[] = '%' . $userFilter . '%';
-            }
-            if ($processFilter !== '') {
-                $where[] = "process LIKE ?";
-                $types .= 's';
-                $params[] = '%' . $processFilter . '%';
-            }
-            if ($statusFilter !== '') {
-                $where[] = "status = ?";
-                $types .= 's';
-                $params[] = $statusFilter;
-            }
-            if ($dateFrom !== '') {
-                $where[] = "`date` >= ?";
-                $types .= 's';
-                $params[] = strpos($dateFrom, ' ') !== false ? $dateFrom : ($dateFrom . ' 00:00:00');
-            }
-            if ($dateTo !== '') {
-                $where[] = "`date` <= ?";
-                $types .= 's';
-                $params[] = strpos($dateTo, ' ') !== false ? $dateTo : ($dateTo . ' 23:59:59');
-            }
-
-            $sql = "SELECT id, unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, operation, `date` FROM history";
-            if (!empty($where)) {
-                $sql .= " WHERE " . implode(" AND ", $where);
-            }
-            $sql .= " ORDER BY `date` DESC, id DESC LIMIT ? OFFSET ?";
-            $types .= 'ii';
-            $params[] = $limit;
-            $params[] = $offset;
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare($sql);
-            stmtBindParams($stmt, $types, $params);
-            $stmt->execute();
-            $rows = stmtFetchAllAssoc($stmt);
-            $stmt->close();
-            $mysqli->close();
-
-            sendJsonResponse(true, 'Historia operacji załadowana', $rows);
-            break;
-
-        /* =========================================================================
-         * 3. BLOCKED MACHINES
-         * ========================================================================= */
-        case 'GetBlockedMachines':
-            $items = array();
-            if (is_dir($blockedMachinesDir) && ($files = scandir($blockedMachinesDir)) !== false) {
-                foreach ($files as $file) {
-                    if ($file === '.' || $file === '..' || strpos($file, '10.237.') !== false) {
-                        continue;
-                    }
-                    $fullPath = $blockedMachinesDir . $file;
-                    if (!is_file($fullPath)) {
-                        continue;
-                    }
-
-                    $lastUnderscore = strrpos($file, '_');
-                    $machine = $lastUnderscore !== false ? substr($file, 0, $lastUnderscore) : $file;
-                    $prefix = $lastUnderscore !== false ? substr($file, $lastUnderscore + 1) : 'MASTER';
-                    $mtime = filemtime($fullPath);
-                    $fsize = filesize($fullPath);
-
-                    $items[] = array(
-                        'id' => $file,
-                        'filename' => $file,
-                        'machine' => $machine ?: 'UNKNOWN',
-                        'prefix' => $prefix ?: 'MASTER',
-                        'blockedAt' => $mtime ? date('Y-m-d H:i:s', $mtime) : null,
-                        'size' => $fsize ?: 0
-                    );
-                }
-            }
-            sendJsonResponse(true, 'Pobrano zablokowane maszyny', $items);
-            break;
-
-        case 'DeleteBlockedMachine':
-            $user = requireWriteAccess();
-            $rawRec = getParam($input, 'record', 'filename');
-            $record = trim($rawRec);
-            if ($record === '') {
-                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Missing record/filename parameter");
-                sendJsonResponse(false, 'Brak parametru record/filename', null, 400);
-            }
-
-            Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Unblocking machine record='$record' by user='$user'");
-            $targetPath = $blockedMachinesDir . basename($record);
-            if (!is_file($targetPath)) {
-                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Block file '$record' not found at '$targetPath'");
-                sendJsonResponse(false, "Plik blokady '$record' nie istnieje", null, 404);
-            }
-
-            if (@unlink($targetPath)) {
-                Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Succeeded: unblocked machine '$record'");
-                sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta!");
-            }
-            Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Failed to unlink block file '$targetPath'");
-            sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
-            break;
-
-        /* =========================================================================
-         * 4. ENGINEERS & MAILING GROUPS
-         * ========================================================================= */
-        case 'GetEngineers':
-            $mysqli = getDbConnection();
-            $rows = queryFetchAllAssoc($mysqli, "SELECT id, process, mail FROM engineers ORDER BY process");
-            $mysqli->close();
-            sendJsonResponse(true, 'Lista inżynierów załadowana', $rows);
-            break;
-
-        case 'UpdateEngineerMail':
-            $user = requireWriteAccess();
-            $process = isset($input['process']) ? trim($input['process']) : '';
-            $mail = isset($input['mail']) ? trim($input['mail']) : '';
-
-            if ($process === '') {
-                Lib::ShowError(FILENAME, "[UpdateEngineerMail] Missing process parameter");
-                sendJsonResponse(false, 'Brak parametru process', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare("UPDATE engineers SET mail = ? WHERE process = ?");
-            $stmt->bind_param('ss', $mail, $process);
-            $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[UpdateEngineerMail] Process '$process' mail set to '$mail' by user '$user'");
-            sendJsonResponse(true, "Zaktualizowano grupę mailową dla procesu '$process'", array('affected' => $affected));
-            break;
-
-        case 'AddEngineer':
-            $user = requireWriteAccess();
-            $process = isset($input['process']) ? trim($input['process']) : '';
-            $mail = isset($input['mail']) ? trim($input['mail']) : '';
-
-            if ($process === '') {
-                Lib::ShowError(FILENAME, "[AddEngineer] Missing process parameter");
-                sendJsonResponse(false, 'Brak parametru process', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare(
-                "INSERT INTO engineers (process, mail) VALUES (?, ?)
-                 ON DUPLICATE KEY UPDATE mail = VALUES(mail)"
-            );
-            $stmt->bind_param('ss', $process, $mail);
-            $stmt->execute();
-            $insertId = $stmt->insert_id;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[AddEngineer] Process '$process' configured with mail '$mail' (id=$insertId) by user '$user'");
-            sendJsonResponse(true, "Proces '$process' został pomyślnie skonfigurowany!", array('id' => $insertId));
-            break;
-
-        case 'DeleteEngineer':
-            $user = requireWriteAccess();
-            $id = isset($input['id']) ? (int)$input['id'] : null;
-            $process = isset($input['process']) ? trim($input['process']) : '';
-
-            if (!$id && $process === '') {
-                Lib::ShowError(FILENAME, "[DeleteEngineer] Missing id or process parameter");
-                sendJsonResponse(false, 'Brak parametru id lub process', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            if ($id) {
-                $stmt = $mysqli->prepare("DELETE FROM engineers WHERE id = ?");
-                $stmt->bind_param('i', $id);
-            } else {
-                $stmt = $mysqli->prepare("DELETE FROM engineers WHERE process = ?");
-                $stmt->bind_param('s', $process);
-            }
-            $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[DeleteEngineer] Deleted process configuration (id=" . var_export($id, true) . ", process='$process') by user '$user'");
-            sendJsonResponse(true, "Usunięto konfigurację procesu", array('affected' => $affected));
-            break;
-
-        case 'GetMails':
-            $mysqli = getDbConnection();
-            $rows = queryFetchAllAssoc($mysqli, "SELECT id, name, mail FROM mails ORDER BY name");
-            $mysqli->close();
-            sendJsonResponse(true, 'Książka adresowa maili załadowana', $rows);
-            break;
-
-        case 'AddMail':
-            $user = requireWriteAccess();
-            $name = isset($input['name']) ? trim($input['name']) : '';
-            $mail = isset($input['mail']) ? trim($input['mail']) : '';
-
-            if ($mail === '') {
-                Lib::ShowError(FILENAME, "[AddMail] Missing email address");
-                sendJsonResponse(false, 'Adres e-mail jest wymagany!', null, 400);
-            }
-
-            if ($name === '') {
-                $parts = explode('@', $mail);
-                $name = $parts[0];
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare("INSERT INTO mails (name, mail) VALUES (?, ?)");
-            $stmt->bind_param('ss', $name, $mail);
-            $stmt->execute();
-            $id = $stmt->insert_id;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[AddMail] Added mail group '$name' ($mail, id=$id) by user '$user'");
-            sendJsonResponse(true, "Dodano grupę mailową '$name' ($mail)", array('id' => $id));
-            break;
-
-        case 'UpdateMail':
-            $user = requireWriteAccess();
-            $id = isset($input['id']) ? (int)$input['id'] : 0;
-            $name = isset($input['name']) ? trim($input['name']) : '';
-            $mail = isset($input['mail']) ? trim($input['mail']) : '';
-
-            if ($id <= 0 || $mail === '') {
-                Lib::ShowError(FILENAME, "[UpdateMail] Invalid id or missing mail: id=$id, mail='$mail'");
-                sendJsonResponse(false, 'Nieprawidłowe ID lub brak adresu mailowego', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare("UPDATE mails SET name = ?, mail = ? WHERE id = ?");
-            $stmt->bind_param('ssi', $name, $mail, $id);
-            $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[UpdateMail] Updated mail group id=$id to '$name' ($mail) by user '$user'");
-            sendJsonResponse(true, "Zaktualizowano grupę mailową", array('affected' => $affected));
-            break;
-
-        case 'DeleteMail':
-            $user = requireWriteAccess();
-            $id = isset($input['id']) ? (int)$input['id'] : 0;
-            if ($id <= 0) {
-                Lib::ShowError(FILENAME, "[DeleteMail] Invalid mail id: $id");
-                sendJsonResponse(false, 'Nieprawidłowe ID maila', null, 400);
-            }
-
-            $mysqli = getDbConnection();
-            $stmt = $mysqli->prepare("DELETE FROM mails WHERE id = ?");
-            $stmt->bind_param('i', $id);
-            $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            $mysqli->close();
-
-            Lib::ShowDebug(FILENAME, "[DeleteMail] Deleted mail group id=$id by user '$user'");
-            sendJsonResponse(true, "Usunięto grupę mailową", array('affected' => $affected));
-            break;
-
         default:
             Lib::ShowError(FILENAME, "Unknown job requested: '$job'");
-            sendJsonResponse(false, "Nieznany job: '$job'", null, 404);
+            sendJsonResponse(false, "Nieznany job lub operacja nieobsługiwana na serwerze FIS 2: '$job'", null, 404);
             break;
     }
 } catch (Exception $e) {
@@ -1516,5 +945,5 @@ try {
     if ($e instanceof ApiOperationException) {
         sendJsonResponse(false, $e->publicMessage, $e->responseData, $e->statusCode);
     }
-    sendJsonResponse(false, 'Wewnętrzny błąd serwera', null, 500);
+    sendJsonResponse(false, 'Wewnętrzny błąd serwera: ' . $e->getMessage(), null, 500);
 }

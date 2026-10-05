@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useLanguage } from '../../i18n/useLanguage';
 
 interface ModalProps {
     isOpen: boolean;
@@ -19,6 +20,7 @@ export const Modal: React.FC<ModalProps> = ({
     children,
     maxWidth = 'md'
 }) => {
+    const { t } = useLanguage();
     const dialogRef = useRef<HTMLDivElement>(null);
     const onCloseRef = useRef(onClose);
     const titleId = useId();
@@ -155,7 +157,7 @@ export const Modal: React.FC<ModalProps> = ({
                     <button
                         onClick={onClose}
                         className="p-1.5 rounded-xl text-brand-text-muted hover:text-brand-text hover:bg-brand-surface-high transition-all duration-200 hover:rotate-90 active:scale-90 cursor-pointer"
-                        aria-label="Close"
+                        aria-label={t.closeDialog}
                     >
                         <X size={18} />
                     </button>

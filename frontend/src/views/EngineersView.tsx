@@ -4,7 +4,7 @@ import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
 import { ErrorBanner } from '../components/common/ErrorBanner';
-import { getErrorMessage } from '../lib/errors';
+import { getLocalizedErrorMessage } from '../lib/errors';
 import { useEngineerActions, useEngineersQuery, useMailsQuery } from '../hooks/useEngineers';
 import {
     Mail,
@@ -19,7 +19,7 @@ import {
 
 export const EngineersView: React.FC = () => {
     const { canEdit } = useAuth();
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
 
     // Active tab: 'processes' (engineers records) or 'mails' (mail records)
     const [activeTab, setActiveTab] = useState<'processes' | 'mails'>('processes');
@@ -41,7 +41,7 @@ export const EngineersView: React.FC = () => {
     const [editMailName, setEditMailName] = useState('');
     const [editMailAddress, setEditMailAddress] = useState('');
     const [deleteMailTarget, setDeleteMailTarget] = useState<MailItem | null>(null);
-    const [actionError, setActionError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<unknown>(null);
 
     // --- Queries ---
     const { data: engineers = [], isLoading: engLoading, isFetching: engFetching, refetch: refetchEngineers, error: engineersError } = useEngineersQuery();
@@ -57,7 +57,7 @@ export const EngineersView: React.FC = () => {
         deleteMailMutation,
     } = useEngineerActions({
         onMutate: () => setActionError(null),
-        onError: (error: unknown) => setActionError(getErrorMessage(error)),
+        onError: (error: unknown) => setActionError(error),
         onProcessUpdated: () => setEditProcessTarget(null),
         onProcessAdded: () => {
             setIsAddProcessOpen(false);
@@ -104,7 +104,7 @@ export const EngineersView: React.FC = () => {
     return (
         <div className="space-y-6">
             <ErrorBanner
-                message={actionError ?? (engineersError ? getErrorMessage(engineersError) : mailsError ? getErrorMessage(mailsError) : null)}
+                message={actionError ? getLocalizedErrorMessage(actionError, language, t.actionError) : engineersError ? getLocalizedErrorMessage(engineersError, language, t.engineersLoadError) : mailsError ? getLocalizedErrorMessage(mailsError, language, t.mailsLoadError) : null}
                 onDismiss={actionError ? () => setActionError(null) : undefined}
             />
             {/* Header info banner */}
@@ -194,7 +194,7 @@ export const EngineersView: React.FC = () => {
                     className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider cursor-pointer"
                 >
                     <RefreshCw size={14} className={engFetching || mailsFetching ? 'animate-spin text-brand-accent' : ''} />
-                    <span>Odśwież</span>
+                    <span>{t.refresh}</span>
                 </button>
             </div>
 
@@ -212,7 +212,7 @@ export const EngineersView: React.FC = () => {
                 </div>
 
                 <div className="text-xs font-mono text-brand-text-muted">
-                    Wyników: <strong className="text-brand-text">{activeTab === 'processes' ? filteredEngineers.length : filteredMails.length}</strong>
+                    {t.engineersResults} <strong className="text-brand-text">{activeTab === 'processes' ? filteredEngineers.length : filteredMails.length}</strong>
                 </div>
             </div>
 
@@ -222,7 +222,7 @@ export const EngineersView: React.FC = () => {
                         <table className="sticky-header-table w-full text-left text-xs border-collapse">
                             <thead>
                                 <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
-                                    <th className="py-3 px-4 font-semibold w-16">ID</th>
+                                    <th className="py-3 px-4 font-semibold w-16">{t.idLabel}</th>
                                     <th className="py-3 px-4 font-semibold w-64">{t.thProcess}</th>
                                     <th className="py-3 px-4 font-semibold">{t.thEmailGroup}</th>
                                     {canEdit && <th className="py-3 px-4 font-semibold text-right pr-4 w-32">{t.thActions}</th>}
@@ -234,14 +234,14 @@ export const EngineersView: React.FC = () => {
                                         <td colSpan={4} className="py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
                                                 <RefreshCw className="animate-spin text-brand-accent" size={18} />
-                                                <span>Ładowanie listy procesów i maili...</span>
+                                                <span>{t.engineersLoading}</span>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : filteredEngineers.length === 0 ? (
                                     <tr>
                                         <td colSpan={4} className="py-12 text-center text-brand-text-muted/70 font-sans">
-                                            Brak rekordów spełniających kryteria.
+                                            {t.engineersNoRecords}
                                         </td>
                                     </tr>
                                 ) : (
@@ -285,7 +285,7 @@ export const EngineersView: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setDeleteProcessTarget(eng)}
                                                             className="interactive-button p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 cursor-pointer"
-                                                            title="Usuń konfigurację"
+                                                            title={t.deleteProcessConfig}
                                                         >
                                                             <Trash2 size={13} />
                                                         </button>
@@ -307,7 +307,7 @@ export const EngineersView: React.FC = () => {
                         <table className="sticky-header-table w-full text-left text-xs border-collapse">
                             <thead>
                                 <tr className="bg-brand-surface text-brand-text-muted font-mono text-[11px] uppercase tracking-wider border-b border-brand-border">
-                                    <th className="py-3 px-4 font-semibold w-16">ID</th>
+                                    <th className="py-3 px-4 font-semibold w-16">{t.idLabel}</th>
                                     <th className="py-3 px-4 font-semibold w-64">{t.thContactName}</th>
                                     <th className="py-3 px-4 font-semibold">{t.thEmailAddress}</th>
                                     {canEdit && <th className="py-3 px-4 font-semibold text-right pr-4 w-32">{t.thActions}</th>}
@@ -319,14 +319,14 @@ export const EngineersView: React.FC = () => {
                                         <td colSpan={4} className="py-12 text-center text-brand-text-muted">
                                             <div className="inline-flex items-center gap-2">
                                                 <RefreshCw className="animate-spin text-brand-accent" size={18} />
-                                                <span>Ładowanie książki adresowej e-mail...</span>
+                                                <span>{t.mailsLoading}</span>
                                             </div>
                                         </td>
                                     </tr>
                                 ) : filteredMails.length === 0 ? (
                                     <tr>
                                         <td colSpan={4} className="py-12 text-center text-brand-text-muted/70 font-sans">
-                                            Brak adresów e-mail w bazie. Kliknij &quot;Dodaj Nowy E-mail&quot;, aby dodać pierwszy rekord.
+                                            {t.mailsNoRecords}
                                         </td>
                                     </tr>
                                 ) : (
@@ -367,7 +367,7 @@ export const EngineersView: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setDeleteMailTarget(item)}
                                                             className="interactive-button p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 cursor-pointer"
-                                                            title="Usuń kontakt"
+                                                            title={t.deleteContact}
                                                         >
                                                             <Trash2 size={13} />
                                                         </button>
@@ -392,7 +392,7 @@ export const EngineersView: React.FC = () => {
                 isOpen={!!editProcessTarget}
                 onClose={() => setEditProcessTarget(null)}
                 title={`${t.editMailGroupTitle} ${editProcessTarget?.process}`}
-                description="Zmień lub przypisz adres e-mail / grupę mailingową inżynierów dla tego procesu"
+                description={t.processMailDescription}
             >
                 {editProcessTarget && (
                     <form
@@ -409,7 +409,7 @@ export const EngineersView: React.FC = () => {
                             <input
                                 type="email"
                                 required
-                                placeholder="np. PLBLO_PDS_FCT@borgwarner.com"
+                                placeholder={t.processMailExample}
                                 value={editProcessMailValue}
                                 onChange={(e) => setEditProcessMailValue(e.target.value)}
                                 list="allSuggestions"
@@ -447,7 +447,7 @@ export const EngineersView: React.FC = () => {
                 isOpen={isAddProcessOpen}
                 onClose={() => setIsAddProcessOpen(false)}
                 title={t.addProcessConfigTitle}
-                description="Wprowadź nazwę procesu oraz powiązaną grupę mailową"
+                description={t.addProcessDescription}
             >
                 <form
                     onSubmit={(e) => {
@@ -464,7 +464,7 @@ export const EngineersView: React.FC = () => {
                         <input
                             type="text"
                             required
-                            placeholder="np. SMT3 lub ICT_LINE_C..."
+                            placeholder={t.processExample}
                             value={newProcessName}
                             onChange={(e) => setNewProcessName(e.target.value.toUpperCase())}
                             className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
@@ -477,7 +477,7 @@ export const EngineersView: React.FC = () => {
                         </label>
                         <input
                             type="email"
-                            placeholder="np. PLBLO_SMT_ENG@borgwarner.com"
+                            placeholder={t.emailAddressPlaceholder}
                             value={newProcessMail}
                             onChange={(e) => setNewProcessMail(e.target.value)}
                             list="allSuggestions2"
@@ -503,7 +503,7 @@ export const EngineersView: React.FC = () => {
                             disabled={addProcessMutation.isPending}
                             className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                         >
-                            {addProcessMutation.isPending ? t.saving : 'Dodaj Konfigurację'}
+                            {addProcessMutation.isPending ? t.saving : t.addConfig}
                         </button>
                     </div>
                 </form>
@@ -513,12 +513,12 @@ export const EngineersView: React.FC = () => {
             <Modal
                 isOpen={!!deleteProcessTarget}
                 onClose={() => setDeleteProcessTarget(null)}
-                title="Usuń Konfigurację Procesu"
-                description={`Czy na pewno chcesz usunąć powiązanie dla procesu: ${deleteProcessTarget?.process}?`}
+                title={t.deleteConfigTitle}
+                description={t.deleteConfigDescription.replace('{process}', deleteProcessTarget?.process ?? '')}
             >
                 <div className="space-y-4">
                     <p className="text-sm text-brand-text">
-                        Usunięcie rekordu z tabeli <span className="font-mono text-brand-text">engineers</span> spowoduje brak adresu docelowego dla powiadomień tego procesu.
+                        {t.deleteConfigWarning}
                     </p>
                     <div className="flex justify-end gap-3 pt-2">
                         <button
@@ -549,7 +549,7 @@ export const EngineersView: React.FC = () => {
                 isOpen={isAddMailOpen}
                 onClose={() => setIsAddMailOpen(false)}
                 title={t.addStandaloneMailTitle}
-                description="Wprowadź dane nowego adresu e-mail lub grupy mailingowej do tabeli mails"
+                description={t.addMailDescription}
             >
                 <form
                     onSubmit={(e) => {
@@ -613,7 +613,7 @@ export const EngineersView: React.FC = () => {
                 isOpen={!!editMailTarget}
                 onClose={() => setEditMailTarget(null)}
                 title={t.editStandaloneMailTitle}
-                description="Zaktualizuj nazwę lub adres e-mail w tabeli mails"
+                description={t.editMailDescription}
             >
                 {editMailTarget && (
                     <form
@@ -684,7 +684,7 @@ export const EngineersView: React.FC = () => {
             >
                 <div className="space-y-4">
                     <p className="text-sm text-brand-text">
-                        Usunięcie adresu <strong className="text-brand-text font-mono">{deleteMailTarget?.mail}</strong> ({deleteMailTarget?.name}) z tabeli <span className="font-mono text-brand-accent">masterSample.mails</span>.
+                        {t.deleteMailDetails.replace('{email}', deleteMailTarget?.mail ?? '').replace('{name}', deleteMailTarget?.name ?? '')}
                     </p>
                     <div className="flex justify-end gap-3 pt-2">
                         <button
