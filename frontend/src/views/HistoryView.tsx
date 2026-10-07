@@ -20,6 +20,8 @@ import {
     ExternalLink,
 } from 'lucide-react';
 
+const stationOperations = new Set(['UnlockStation', 'DisableStationBlocking', 'EnableStationBlocking', 'DeleteStationBlockingRule']);
+
 export const HistoryView: React.FC = () => {
     const { language, t } = useLanguage();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -152,6 +154,12 @@ export const HistoryView: React.FC = () => {
                 return 'danger';
             case 'activate':
                 return 'purple';
+            case 'unlockstation':
+            case 'enablestationblocking':
+                return 'success';
+            case 'disablestationblocking':
+            case 'deletestationblockingrule':
+                return 'warning';
             default:
                 return 'neutral';
         }
@@ -173,6 +181,14 @@ export const HistoryView: React.FC = () => {
                 return t.opBlock;
             case 'activate':
                 return t.opActivate;
+            case 'unlockstation':
+                return t.opUnlockStation;
+            case 'disablestationblocking':
+                return t.opDisableStationBlocking;
+            case 'enablestationblocking':
+                return t.opEnableStationBlocking;
+            case 'deletestationblockingrule':
+                return t.opDeleteStationBlockingRule;
             case 'delete':
                 return t.opDelete;
             default:
@@ -271,6 +287,10 @@ export const HistoryView: React.FC = () => {
                             <option value="ResetErrors">{t.opResetErrors}</option>
                             <option value="Block">{t.opBlock}</option>
                             <option value="Activate">{t.opActivate}</option>
+                            <option value="UnlockStation">{t.opUnlockStation}</option>
+                            <option value="DisableStationBlocking">{t.opDisableStationBlocking}</option>
+                            <option value="EnableStationBlocking">{t.opEnableStationBlocking}</option>
+                            <option value="DeleteStationBlockingRule">{t.opDeleteStationBlockingRule}</option>
                             <option value="Delete">{t.opDelete}</option>
                         </select>
                     </div>
@@ -450,13 +470,14 @@ export const HistoryView: React.FC = () => {
                                         <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
                                             <div className="flex items-center gap-1.5 w-max">
                                                 <Link
-                                                    to={`/?search=${encodeURIComponent(rec.unit)}`}
+                                                    to={stationOperations.has(rec.operation) ? (rec.operation === 'UnlockStation' ? '/blocked-machines' : '/admin/station-blocking') : `/?search=${encodeURIComponent(rec.unit)}`}
                                                     className="whitespace-nowrap font-mono text-brand-accent hover:text-indigo-300 hover:underline"
-                                                    title={t.historyDashboardLink.replace('{unit}', rec.unit)}
+                                                    title={stationOperations.has(rec.operation) ? getOperationLabel(rec.operation) : t.historyDashboardLink.replace('{unit}', rec.unit)}
                                                 >
                                                     <span>{rec.unit}</span>
                                                 </Link>
-                                                {rec.FIS && ['FIS1', 'FIS2', '1', '2'].includes(rec.FIS.trim().toUpperCase()) && <a
+                                                {stationOperations.has(rec.operation) && <span className="rounded border border-brand-border px-1.5 py-0.5 text-[10px] text-brand-text-muted">{rec.FIS}</span>}
+                                                {!stationOperations.has(rec.operation) && rec.FIS && ['FIS1', 'FIS2', '1', '2'].includes(rec.FIS.trim().toUpperCase()) && <a
                                                     href={getFisUnitHistoryUrl(rec.unit, rec.FIS)}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
@@ -473,10 +494,10 @@ export const HistoryView: React.FC = () => {
                                             </Badge>
                                         </td>
                                         <td className="py-3 px-4 text-brand-text font-semibold">
-                                            <span className="block w-max max-w-[17rem] [overflow-wrap:anywhere]">{rec.process}</span>
+                                            <span className="block w-max max-w-[17rem] [overflow-wrap:anywhere]">{rec.process === 'BLOCKING_POLICY:prefix' ? t.stationRulePrefix : rec.process === 'BLOCKING_POLICY:single' || rec.process === 'BLOCKING_POLICY' ? t.stationRuleSingle : rec.process}</span>
                                         </td>
                                         <td className="py-3 px-4 text-center">
-                                            {rec.status === 'GOOD' ? (
+                                            {['ENABLED', 'DISABLED', 'INHERIT'].includes(rec.status ?? '') ? <Badge variant={rec.status === 'DISABLED' ? 'warning' : rec.status === 'ENABLED' ? 'success' : 'info'}>{rec.status === 'DISABLED' ? t.stationRuleDisabled : rec.status === 'ENABLED' ? t.stationRuleEnabled : t.stationRuleInherit}</Badge> : rec.status === 'GOOD' ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                                                     GOOD
                                                 </span>
@@ -489,16 +510,16 @@ export const HistoryView: React.FC = () => {
                                             )}
                                         </td>
                                         <td className="py-3 px-4 text-slate-200">
-                                            {rec.currentCounter} <span className="text-brand-text-muted/60">/ {rec.maxCounter}</span>
+                                            {stationOperations.has(rec.operation) ? '—' : <>{rec.currentCounter} <span className="text-brand-text-muted/60">/ {rec.maxCounter}</span></>}
                                         </td>
                                         <td className="py-3 px-4">
-                                            <span className={rec.errorCounter > 0 ? 'text-rose-400 font-bold' : 'text-slate-200'}>
+                                            {stationOperations.has(rec.operation) ? '—' : <><span className={(rec.errorCounter ?? 0) > 0 ? 'text-rose-400 font-bold' : 'text-slate-200'}>
                                                 {rec.errorCounter}
                                             </span>
-                                            <span className="text-brand-text-muted/60"> / {rec.errorMaxCounter}</span>
+                                            <span className="text-brand-text-muted/60"> / {rec.errorMaxCounter}</span></>}
                                         </td>
                                         <td className="py-3 px-4 font-bold text-slate-200">
-                                            {rec.globalCounter?.toLocaleString() ?? 0}
+                                            {stationOperations.has(rec.operation) ? '—' : rec.globalCounter?.toLocaleString() ?? 0}
                                         </td>
                                         <td className="py-3 px-4 text-brand-text-muted font-sans">
                                             {rec.user || '—'}

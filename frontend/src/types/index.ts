@@ -16,13 +16,13 @@ export interface MasterUnit {
 export interface HistoryRecord {
     id: number;
     unit: string;
-    process: string;
-    status: string;
-    currentCounter: number;
-    maxCounter: number;
-    errorCounter: number;
-    errorMaxCounter: number;
-    globalCounter: number;
+    process: string | null;
+    status: string | null;
+    currentCounter: number | null;
+    maxCounter: number | null;
+    errorCounter: number | null;
+    errorMaxCounter: number | null;
+    globalCounter: number | null;
     user: string;
     operation: 'Create' | 'Update' | 'Reset' | 'ResetCycles' | 'ResetErrors' | 'Block' | 'Activate' | 'Delete' | string;
     date: string;

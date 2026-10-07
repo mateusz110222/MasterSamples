@@ -4,6 +4,7 @@ import { ApiError, apiRequest, setSessionUser } from '../src/api/client.ts';
 import { getCreateMasterUrl, masterApi } from '../src/api/masterApi.ts';
 import { fisApi, getFisUnitHistoryUrl } from '../src/api/fisApi.ts';
 import { blockedApi } from '../src/api/blockedApi.ts';
+import { stationBlockingApi } from '../src/api/stationBlockingApi.ts';
 
 const installBrowserMocks = (response: Response) => {
     const originalFetch = globalThis.fetch;
@@ -17,9 +18,93 @@ const installBrowserMocks = (response: Response) => {
     };
 };
 
+test('editing a master uses its FIS and sends only settings without counter resets', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    globalThis.window = { location: { origin: 'http://dashboard.test' } } as Window & typeof globalThis;
+    const requests: { url: URL; method?: string; body: Record<string, unknown> }[] = [];
+    globalThis.fetch = async (input, init) => {
+        requests.push({ url: new URL(String(input)), method: init?.method, body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify({ status: true, data: { unit: 'MASTER-1', changed: true } }), {
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+    try {
+        setSessionUser('operator', 'Test Operator', ['golden_samples']);
+        for (const fis of ['FIS1', 'FIS2'] as const) {
+            const settings = { unit: 'MASTER-1', fis, process: 'SMT_SPI,SMT_AOI', maxCounter: 2000, maxErrors: 25 };
+            const response = await masterApi.updateMaster(settings);
+            const request = requests.at(-1)!;
+            assert.equal(request.url.hostname, fis === 'FIS2' ? 'plblofis2.global.borgwarner.net' : 'plblofis1.global.borgwarner.net');
+            assert.equal(request.url.searchParams.get('job'), 'UpdateMaster');
+            assert.equal(request.method, 'POST');
+            assert.deepEqual(request.body, { ...settings, user: 'operator', userName: 'Test Operator', userGroups: ['golden_samples'] });
+            assert.equal(response.data?.changed, true);
+        }
+    } finally {
+        setSessionUser('', '', []);
+        globalThis.fetch = originalFetch;
+        globalThis.window = originalWindow;
+    }
+});
+
 test('history links use the event FIS and escape the unit number', () => {
     assert.equal(getFisUnitHistoryUrl('SN&1', 'FIS2'), 'http://plblofis2.global.borgwarner.net/std_public/unithistory?unit=SN%261');
     assert.equal(getFisUnitHistoryUrl('SN&1', 'FIS1'), 'http://plblofis1.global.borgwarner.net/std_public/unithistory?unit=SN%261');
+});
+
+test('station tags use the selected FIS router and normalize unique station names', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    const requests: URL[] = [];
+    globalThis.fetch = async input => {
+        const url = new URL(String(input));
+        requests.push(url);
+        const station = url.hostname.includes('plblofis2') ? 'FIS2_SPI' : 'FIS1_SPI';
+        return new Response(JSON.stringify([{ key: ` ${station} ` }, { station }, station, { key: '' }, { name: 'AOI' }]), { headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+        for (const host of ['plblofis1', 'plblofis2']) {
+            globalThis.window = { location: { hostname: `${host}.global.borgwarner.net`, origin: `http://${host}.global.borgwarner.net` } } as Window & typeof globalThis;
+            for (const fis of ['FIS1', 'FIS2'] as const) {
+                assert.deepEqual((await fisApi.getStationTags(fis)).map(tag => tag.key), ['AOI', `${fis}_SPI`]);
+                const request = requests.at(-1)!;
+                assert.equal(request.hostname, fis === 'FIS2' ? 'plblofis2.global.borgwarner.net' : 'plblofis1.global.borgwarner.net');
+                assert.equal(request.pathname, '/custom/matz/phpBB/router.php');
+                assert.equal(request.searchParams.get('job'), 'GetStationTags');
+            }
+        }
+    } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow; }
+});
+
+test('station blocking records are scoped to FIS and enabled by presence', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalWindow = globalThis.window;
+    globalThis.window = { location: { origin: 'http://dashboard.test' } } as Window & typeof globalThis;
+    const requests: { url: URL; method?: string; body?: Record<string, unknown> }[] = [];
+    globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        requests.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+        return new Response(JSON.stringify({ status: true, data: url.searchParams.get('job') === 'GetStationBlockingRules' ? [{ station: 'SPI', FIS: 'FIS2', mode: 'single', disabled: true }] : null }), { headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+        const rows = await stationBlockingApi.list('FIS2');
+        assert.equal(rows[0].FIS, 'FIS2');
+        assert.equal(requests[0].url.hostname, 'plblofis2.global.borgwarner.net');
+        assert.equal(requests[0].url.searchParams.get('fis'), 'FIS2');
+        await stationBlockingApi.set('SPI', 'FIS1');
+        assert.equal(requests[1].url.hostname, 'plblofis1.global.borgwarner.net');
+        assert.equal(requests[1].url.searchParams.get('job'), 'SetStationBlocking');
+        assert.equal(requests[1].method, 'POST');
+        assert.deepEqual(requests[1].body, { station: 'SPI', fis: 'FIS1', mode: 'single' });
+        await stationBlockingApi.set('SPI', 'FIS2');
+        assert.deepEqual(requests[2].body, { station: 'SPI', fis: 'FIS2', mode: 'single' });
+        await stationBlockingApi.set('FTS', 'FIS2', 'prefix');
+        assert.deepEqual(requests[3].body, { station: 'FTS', fis: 'FIS2', mode: 'prefix' });
+        await stationBlockingApi.remove('FTS', 'FIS2', 'prefix');
+        assert.equal(requests[4].url.searchParams.get('job'), 'DeleteStationBlockingRule');
+        assert.deepEqual(requests[4].body, { station: 'FTS', fis: 'FIS2', mode: 'prefix' });
+    } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow; }
 });
 
 test('blocked machine lists retain the FIS for identical filenames and unlock on the selected host', async () => {

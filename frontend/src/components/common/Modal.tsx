@@ -6,10 +6,12 @@ import { useLanguage } from '../../i18n/useLanguage';
 interface ModalProps {
     isOpen: boolean;
     onClose: () => void;
-    title: string;
+    title: React.ReactNode;
     description?: React.ReactNode;
     children: React.ReactNode;
     maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+    appearance?: 'default' | 'panel';
+    headerIcon?: React.ReactNode;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -18,7 +20,9 @@ export const Modal: React.FC<ModalProps> = ({
     title,
     description,
     children,
-    maxWidth = 'md'
+    maxWidth = 'md',
+    appearance = 'default',
+    headerIcon,
 }) => {
     const { t } = useLanguage();
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -139,13 +143,15 @@ export const Modal: React.FC<ModalProps> = ({
                 aria-labelledby={titleId}
                 aria-describedby={description ? descriptionId : undefined}
                 tabIndex={-1}
-                className={`relative w-full ${maxWidthClasses} bg-brand-surface border border-brand-border/80 rounded-2xl shadow-2xl shadow-black/80 p-6 overflow-hidden z-10 space-y-5 text-brand-text my-auto ${
+                className={`relative w-full ${maxWidthClasses} bg-brand-surface border border-brand-border/80 shadow-2xl shadow-black/80 overflow-hidden z-10 text-brand-text my-auto ${appearance === 'panel' ? 'rounded-3xl' : 'rounded-2xl p-6 space-y-5'} ${
                     isExiting ? 'animate-modal-pop-out' : 'animate-modal-pop'
                 }`}
             >
-                <div className="flex items-start justify-between gap-4 pb-3 border-b border-brand-border/60">
-                    <div>
-                        <h3 id={titleId} className="text-lg font-bold tracking-tight text-brand-text">
+                <div className={`flex justify-between gap-4 border-b border-brand-border/60 ${appearance === 'panel' ? 'items-center bg-brand-surface-high p-6' : 'items-start pb-3'}`}>
+                    <div className={`flex min-w-0 flex-1 gap-2.5 ${appearance === 'panel' ? 'items-center' : 'items-start'}`}>
+                        {headerIcon && <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-brand-accent/20 bg-brand-accent/10 text-brand-accent shadow-inner">{headerIcon}</span>}
+                        <div className="min-w-0 flex-1">
+                        <h3 id={titleId} className={appearance === 'panel' ? 'text-sm font-black uppercase tracking-widest text-brand-text break-words' : 'text-lg font-bold tracking-tight text-brand-text'}>
                             {isOpen ? title : cachedContent.title}
                         </h3>
                         {(isOpen ? description : cachedContent.description) && (
@@ -153,17 +159,18 @@ export const Modal: React.FC<ModalProps> = ({
                                 {isOpen ? description : cachedContent.description}
                             </p>
                         )}
+                        </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-xl text-brand-text-muted hover:text-brand-text hover:bg-brand-surface-high transition-all duration-200 hover:rotate-90 active:scale-90 cursor-pointer"
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-brand-text-muted transition-all duration-200 active:scale-90 cursor-pointer ${appearance === 'panel' ? 'hover:text-red-400 hover:bg-red-500/10' : 'hover:text-brand-text hover:bg-brand-surface-high hover:rotate-90'}`}
                         aria-label={t.closeDialog}
                     >
                         <X size={18} />
                     </button>
                 </div>
 
-                <div className="max-h-[75vh] overflow-y-auto pr-1">
+                <div className={`max-h-[75vh] overflow-y-auto ${appearance === 'panel' ? 'p-6' : 'pr-1'}`}>
                     {isOpen ? children : cachedContent.children}
                 </div>
             </div>

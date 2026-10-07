@@ -440,6 +440,55 @@ function requireWriteAccess()
     return $userId;
 }
 
+
+/**
+ * Record a station unlock in the existing history table.
+ * SQL and the filesystem cannot share a transaction: report a commit failure
+ * after unlink explicitly, without recreating a potentially obsolete lock.
+ */
+function unlockMachineWithAudit($targetPath, $record, $fis)
+{
+    $separator = strrpos($record, '_');
+    $machine = $separator !== false ? substr($record, 0, $separator) : $record;
+    $lockType = $separator !== false ? substr($record, $separator + 1) : 'MASTER';
+    if (!preg_match('/^.{1,100}$/usD', $machine) || !preg_match('/^.{1,100}$/usD', $lockType)) {
+        throw new ApiOperationException('Nazwa maszyny lub typ blokady nie mieści się w rejestrze audytu', 400);
+    }
+    $operator = getOperatorName();
+    $db = getDbConnection();
+    $removed = false;
+    try {
+        $db->query('START TRANSACTION');
+        $stmt = $db->prepare("INSERT INTO history
+            (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+            VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, 'UnlockStation', NOW())");
+        $stmt->bind_param('ssss', $machine, $lockType, $fis, $operator);
+        $stmt->execute();
+        if ($stmt->affected_rows !== 1) {
+            throw new Exception('Station unlock audit insert failed');
+        }
+        $stmt->close();
+        if (is_link($targetPath) || !is_file($targetPath) || !@unlink($targetPath)) {
+            throw new ApiOperationException("Nie udało się usunąć blokady '$record'", 500);
+        }
+        $removed = true;
+        $db->query('COMMIT');
+    } catch (Exception $err) {
+        try { $db->query('ROLLBACK'); } catch (Exception $rollbackError) {
+            Lib::ShowError(FILENAME, '[UnlockStation] Rollback failed: ' . $rollbackError->getMessage());
+        }
+        $db->close();
+        if ($removed) {
+            Lib::ShowError(FILENAME, "[UnlockStation] Block removed but audit commit not confirmed: fis='$fis', record='$record', operator='$operator': " . $err->getMessage());
+            throw new ApiOperationException('Blokada została zdjęta, ale nie potwierdzono zapisu audytu. Sprawdź historię i logi.', 500,
+                array('unlocked' => true, 'audit_confirmed' => false), $err);
+        }
+        throw $err;
+    }
+    $db->close();
+    Lib::ShowDebug(FILENAME, "[UnlockStation] Audited unlock: fis='$fis', record='$record', operator='$operator'");
+}
+
 function getOperatorName()
 {
     if (!empty($_SERVER['HTTP_X_USER_NAME'])) {
@@ -531,12 +580,190 @@ try {
                 sendJsonResponse(false, "Plik blokady '$record' nie istnieje lub nie jest zwykłym plikiem", null, 404);
             }
             Lib::ShowDebug(FILENAME, "[DeleteBlockedMachine] Unblocking FIS2 record='$record' by user='$user'");
-            if (!@unlink($targetPath)) {
-                Lib::ShowError(FILENAME, "[DeleteBlockedMachine] Failed to unlink '$targetPath'");
-                sendJsonResponse(false, "Błąd podczas usuwania pliku blokady '$record'", null, 500);
-            }
-            sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta!");
+            unlockMachineWithAudit($targetPath, $record, 'FIS2');
+            sendJsonResponse(true, "Blokada dla '$record' została pomyślnie usunięta i zapisana w audycie!");
             break;
+
+        case 'GetStationBlockingRules':
+        case 'SetStationBlocking':
+        case 'DeleteStationBlockingRule': {
+            if ($job !== 'GetStationBlockingRules') {
+                requireWriteAccess();
+            }
+            $fis = isset($input['fis']) && is_string($input['fis']) ? strtoupper(trim($input['fis'])) : '';
+            if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
+                sendJsonResponse(false, 'Nieprawidłowy serwer FIS', null, 400);
+            }
+            $serverFis = getServerFis();
+            if ($serverFis !== null && $serverFis !== $fis) {
+                sendJsonResponse(false, 'Żądanie trafiło do niewłaściwego FIS', null, 409);
+            }
+            if ($job !== 'GetStationBlockingRules') {
+                $mode = isset($input['mode']) ? $input['mode'] : 'single';
+                $station = isset($input['station']) && is_string($input['station']) ? trim($input['station']) : '';
+                if (!in_array($mode, array('single', 'prefix'), true) ||
+                    !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/D', $station) ||
+                    ($job === 'SetStationBlocking' && isset($input['disabled']) && $input['disabled'] !== false)) {
+                    sendJsonResponse(false, 'Nieprawidłowa stacja, prefix, zakres lub ustawienie blokowania', null, 400);
+                }
+            }
+            $mysqli = getDbConnection();
+            try {
+                if ($job === 'GetStationBlockingRules') {
+                    $stmt = $mysqli->prepare('SELECT station, mode, disabled, FIS, user, `date` FROM stationBlockingRules WHERE FIS = ? ORDER BY mode, station');
+                    $stmt->bind_param('s', $fis);
+                    $stmt->execute();
+                    $stmt->bind_result($station, $mode, $disabled, $rowFis, $operator, $date);
+                    $rows = array();
+                    while ($stmt->fetch()) {
+                        $rows[] = array('station' => $station, 'mode' => $mode,
+                            'FIS' => $rowFis, 'user' => $operator, 'date' => $date);
+                    }
+                    $stmt->close();
+                    $mysqli->close();
+                    sendJsonResponse(true, 'Pobrano reguły blokowania stacji', $rows);
+                }
+                $operator = getOperatorName();
+                $mysqli->query('START TRANSACTION');
+                $check = $mysqli->prepare('SELECT disabled FROM stationBlockingRules WHERE FIS = ? AND mode = ? AND station = ? FOR UPDATE');
+                $check->bind_param('sss', $fis, $mode, $station);
+                $check->execute();
+                $check->bind_result($oldDisabled);
+                $exists = $check->fetch();
+                $check->close();
+                $deleting = $job === 'DeleteStationBlockingRule';
+                $disabled = 0; // Presence of a rule enables blocking.
+                $changed = $deleting ? (bool)$exists : (!$exists || (int)$oldDisabled !== $disabled);
+                if ($changed) {
+                    if ($deleting) {
+                        $stmt = $mysqli->prepare('DELETE FROM stationBlockingRules WHERE FIS = ? AND mode = ? AND station = ?');
+                        $stmt->bind_param('sss', $fis, $mode, $station);
+                        $operation = 'DeleteStationBlockingRule';
+                        $auditStatus = 'INHERIT';
+                    } else {
+                        $stmt = $mysqli->prepare('INSERT INTO stationBlockingRules (FIS, mode, station, disabled, user, `date`) VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE disabled = VALUES(disabled), user = VALUES(user), `date` = NOW()');
+                        $stmt->bind_param('sssis', $fis, $mode, $station, $disabled, $operator);
+                        $operation = 'EnableStationBlocking';
+                        $auditStatus = 'ENABLED';
+                    }
+                    $stmt->execute();
+                    $stmt->close();
+                    $auditProcess = 'BLOCKING_POLICY:' . $mode;
+                    $audit = $mysqli->prepare("INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, NOW())");
+                    $audit->bind_param('ssssss', $station, $auditProcess, $auditStatus, $fis, $operator, $operation);
+                    $audit->execute();
+                    if ($audit->affected_rows !== 1) {
+                        throw new Exception('Station blocking audit insert failed');
+                    }
+                    $audit->close();
+                }
+                $mysqli->query('COMMIT');
+                $mysqli->close();
+            } catch (Exception $err) {
+                try { $mysqli->query('ROLLBACK'); } catch (Exception $rollbackError) {
+                    Lib::ShowError(FILENAME, '[StationBlocking] Rollback failed: ' . $rollbackError->getMessage());
+                }
+                $mysqli->close();
+                $mysqli = null;
+                throw $err;
+            }
+            Lib::ShowDebug(FILENAME, "[StationBlocking] job='$job', fis='$fis', mode='$mode', station='$station', operator='$operator', changed=" . ($changed ? '1' : '0'));
+            sendJsonResponse(true, 'Zapisano regułę blokowania stacji', array('changed' => $changed));
+            break;
+        }
+
+        case 'UpdateMaster': {
+            requireWriteAccess();
+            foreach (array('unit', 'fis', 'process') as $key) {
+                if (!isset($input[$key]) || !is_string($input[$key]) || trim($input[$key]) === '') {
+                    sendJsonResponse(false, 'Numer mastera, FIS i procesy są wymagane', null, 400);
+                }
+            }
+            $unit = trim($input['unit']);
+            $fis = strtoupper(trim($input['fis']));
+            if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
+                sendJsonResponse(false, 'Nieprawidłowy serwer FIS', null, 400);
+            }
+            $serverFis = getServerFis();
+            if ($serverFis !== null && $serverFis !== $fis) {
+                sendJsonResponse(false, 'Żądanie edycji trafiło do niewłaściwego FIS', null, 409);
+            }
+            $processes = array();
+            foreach (explode(',', $input['process']) as $process) {
+                $process = trim($process);
+                if ($process === '') {
+                    sendJsonResponse(false, 'Lista procesów zawiera pustą nazwę', null, 400);
+                }
+                if (!in_array($process, $processes, true)) {
+                    $processes[] = $process;
+                }
+            }
+            $processClean = implode(',', $processes);
+            if (!preg_match('/^.{1,100}$/usD', $processClean)) {
+                sendJsonResponse(false, 'Lista procesów może mieć maksymalnie 100 znaków', null, 400);
+            }
+            $limits = array();
+            foreach (array('maxCounter', 'maxErrors') as $key) {
+                $value = isset($input[$key]) ? $input[$key] : null;
+                if ((!is_int($value) && !is_string($value)) || !preg_match('/^[0-9]+$/D', (string)$value) ||
+                    (float)$value < 1 || (float)$value > 2147483647) {
+                    sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647', null, 400);
+                }
+                $limits[$key] = (int)$value;
+            }
+            $maxCounter = $limits['maxCounter'];
+            $maxErrors = $limits['maxErrors'];
+            $operatorName = getOperatorName();
+            $mysqli = getDbConnection();
+            try {
+                $mysqli->query('START TRANSACTION');
+                $check = $mysqli->prepare('SELECT process, maxCounter, errorMaxCounter, FIS FROM masterUnits WHERE unit = ? FOR UPDATE');
+                $check->bind_param('s', $unit);
+                $check->execute();
+                $check->bind_result($oldProcess, $oldMaxCounter, $oldMaxErrors, $storedFis);
+                $exists = $check->fetch();
+                $check->close();
+                if (!$exists) {
+                    throw new ApiOperationException('Master nie istnieje', 404);
+                }
+                if (strtoupper(trim((string)$storedFis)) !== $fis) {
+                    throw new ApiOperationException('Master należy do innego FIS. Odśwież listę masterów.', 409);
+                }
+                $changed = $oldProcess !== $processClean || (int)$oldMaxCounter !== $maxCounter || (int)$oldMaxErrors !== $maxErrors;
+                if ($changed) {
+                    // Update only editable settings; counters, status and activity are retained.
+                    $update = $mysqli->prepare('UPDATE masterUnits SET process = ?, maxCounter = ?, errorMaxCounter = ? WHERE unit = ?');
+                    $update->bind_param('siis', $processClean, $maxCounter, $maxErrors, $unit);
+                    $update->execute();
+                    if ($update->affected_rows !== 1) {
+                        throw new Exception('UpdateMaster did not update exactly one master');
+                    }
+                    $update->close();
+                    $history = $mysqli->prepare("INSERT INTO history
+                        (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
+                        SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Update', NOW()
+                        FROM masterUnits WHERE unit = ?");
+                    $history->bind_param('ss', $operatorName, $unit);
+                    $history->execute();
+                    if ($history->affected_rows !== 1) {
+                        throw new Exception('UpdateMaster did not create exactly one history entry');
+                    }
+                    $history->close();
+                }
+                $mysqli->query('COMMIT');
+                $mysqli->close();
+            } catch (Exception $err) {
+                try { $mysqli->query('ROLLBACK'); } catch (Exception $rollbackError) {
+                    Lib::ShowError(FILENAME, '[UpdateMaster] Rollback failed: ' . $rollbackError->getMessage());
+                }
+                $mysqli->close();
+                $mysqli = null;
+                throw $err;
+            }
+            Lib::ShowDebug(FILENAME, "[UpdateMaster] unit='$unit', fis='$fis', operator='$operatorName', changed=" . ($changed ? '1' : '0'));
+            sendJsonResponse(true, 'Zapisano ustawienia mastera', array('unit' => $unit, 'changed' => $changed));
+            break;
+        }
 
         case 'CreateMaster':
             $user = requireWriteAccess();

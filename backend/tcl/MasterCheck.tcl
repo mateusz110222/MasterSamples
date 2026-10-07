@@ -415,7 +415,7 @@ namespace eval ::MasterCheck {
             }
 
             set unit    $result(unit)
-            set html    [string map {& &amp; < &lt; > &gt; {\"} &quot; ' &#39;} $unit]
+            set html    [string map [list & {&amp;} < {&lt;} > {&gt;} \" {&quot;} ' {&#39;}] $unit]
             set subject "\[FIS\] $unit will soon expire!"
             set body    "Master $html zbliza sie do limitu ($result(after)/$result(max))"
 
@@ -428,16 +428,95 @@ namespace eval ::MasterCheck {
         }
     }
 
+    proc _CheckStationName {station} {
+        if {[string length $station] > 100 || ![regexp {^[A-Za-z0-9][A-Za-z0-9_.-]*$} $station]} {
+            error "Invalid station name"
+        }
+    }
+
+    proc _BlockingEnabled {db station} {
+        global param
+        _CheckStationName $station
+        if {[info exists param(masterCheckFis)]} {
+            set fis [string toupper [string trim $param(masterCheckFis)]]
+        } elseif {[regexp -nocase {^plblofis([12])(?:\.|$)} [info hostname] unused number]} {
+            set fis "FIS$number"
+        } else {
+            error "Set param(masterCheckFis) to FIS1 or FIS2"
+        }
+        if {$fis ni {FIS1 FIS2}} {
+            error "Invalid param(masterCheckFis): expected FIS1 or FIS2"
+        }
+        # Indexed literal prefix candidates; underscore is never a SQL wildcard.
+        set prefixes {}
+        for {set length 1} {$length <= [string length $station]} {incr length} {
+            lappend prefixes [_Quote $db [string range $station 0 [expr {$length - 1}]]]
+        }
+        set rows [_Select $db "SELECT mode, station, disabled FROM stationBlockingRules
+            WHERE FIS = [_Quote $db $fis] AND
+                ((mode = 'single' AND station = [_Quote $db $station]) OR
+                 (mode = 'prefix' AND station IN ([join $prefixes ,])))"]
+        return [_RuleEnabled $rows $station]
+    }
+
+    proc _RuleEnabled {rows station} {
+        set selected -1
+        set enabled 0
+        set seen {}
+        foreach row $rows {
+            if {[llength $row] != 3} { error "Invalid station blocking rule" }
+            lassign $row mode selector disabled
+            if {$mode ni {single prefix} || $disabled ni {0 1} ||
+                ![regexp {^[A-Za-z0-9][A-Za-z0-9_.-]*$} $selector] || [string length $selector] > 100} {
+                error "Invalid station blocking rule"
+            }
+            set identity [list $mode $selector]
+            if {$identity in $seen} { error "Duplicate station blocking rule" }
+            lappend seen $identity
+            if {$mode eq "single"} {
+                if {$selector ne $station} { continue }
+                set priority 101
+            } else {
+                if {[string first $selector $station] != 0} { continue }
+                set priority [string length $selector]
+            }
+            if {$priority > $selected} {
+                set selected $priority
+                set enabled 1
+            }
+        }
+        return $enabled
+    }
+
     proc _Run {operation unit process station {status ""}} {
         variable error
         global param
         set error ""
         set db ""
+        set blockingEnabled 0
 
         try {
-            _StationPath $station
+            _CheckStationName $station
             set db [_Connect]
+            set blockingEnabled [_BlockingEnabled $db $station]
+            if {$blockingEnabled} { _StationPath $station }
             set process [string trim $process]
+
+            # BREQ now handles every board, including ordinary production SNs.
+            if {$operation eq "BREQ"} {
+                _EnsureFisUnit $unit
+                if {![::Unit::GetStatus $unit] || ![info exists ::Unit::uk3]} {
+                    error "Cannot get unit status for '$unit'"
+                }
+                if {$::Unit::uk3 ne "GOLDEN"} {
+                    if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
+                        set error "Station blocked, master check required"
+                        ::Lib::ShowError $error
+                        return 0
+                    }
+                    return 1
+                }
+            }
 
             if {$operation eq "BCMP"} {
                 set status [string toupper [string trim $status]]
@@ -465,22 +544,24 @@ namespace eval ::MasterCheck {
             _Notify $db $process result
 
             if {!$result(matched)} {
-                if {![LockStationMaster $station]} {
+                if {$blockingEnabled && ![LockStationMaster $station]} {
                     error $error
                 }
-                set error "Wrong status ($status != $result(expected)); station '$station' blocked"
+                set error "Wrong status ($status != $result(expected))"
+                if {$blockingEnabled} { append error "; station '$station' blocked" }
                 ::Lib::ShowError $error
                 return 0
             }
 
-            if {![UnlockStationMaster $station]} {
+            if {$blockingEnabled && ![UnlockStationMaster $station]} {
                 error $error
             }
 
             return 1
 
         } on error {message options} {
-            if {$db ne "" && ![LockStationMaster $station]} {
+            if {!$blockingEnabled} { set message [string map {". Station blocked." "."} $message] }
+            if {$db ne "" && $blockingEnabled && ![LockStationMaster $station]} {
                 append message "; station block failed: $error"
             }
             set error "MasterCheck $operation failed: $message"

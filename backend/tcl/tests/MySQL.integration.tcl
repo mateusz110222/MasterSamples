@@ -22,7 +22,7 @@ namespace eval ::Unit {
     proc Find {unit} { return 1 }
     proc GetParent {unit} { return 0 }
     proc GetChildren {unit} { return 0 }
-    proc GetStatus {unit} { set ::Unit::uk3 GOLDEN; return 1 }
+    proc GetStatus {unit} { set ::Unit::uk3 [expr {$unit eq "PRODUCTION" ? "NORMAL" : "GOLDEN"}]; return 1 }
 }
 namespace eval ::Mail {
     proc SendHTML {mail subject html} {
@@ -54,7 +54,9 @@ proc ::source {path args} {
     return [uplevel 1 [list ::nativeSource $path {*}$args]]
 }
 proc loadModule {} {
+    namespace eval ::MasterCheck {set _sysvarc(FISVW_DB) /mock/fisdb}
     source [file join $::root .. MasterCheck.tcl]
+    set ::param(masterCheckFis) FIS1
     set ::MasterCheck::blockedDir $::env(MC_TEST_DIR)
     set ::MasterCheck::blockedGroup $::group
 }
@@ -132,6 +134,20 @@ try {
         currentCounter int, maxCounter int, errorCounter int, errorMaxCounter int, globalCounter int
     ) ENGINE=InnoDB}
     ::mysql::exec $work {CREATE TABLE engineers (process varchar(100) PRIMARY KEY, mail varchar(100)) ENGINE=InnoDB}
+    set migrationFile [open [file join $root .. .. migrations 002_station_blocking_rules.sql] r]
+    set migration [read $migrationFile]
+    close $migrationFile
+    set migration [string map [list masterSample $schema] $migration]
+    regsub -all {(?m)^--[^\n]*\n?} $migration {} migration
+    foreach sql [split $migration {;}] {
+        if {[string trim $sql] ne ""} { ::mysql::exec $work $sql }
+    }
+    assert {[::mysql::sel $work {SELECT COUNT(*) FROM stationBlockingRules} -list] eq {{0}}} "Fresh schema must not enable any rules"
+    ::mysql::exec $work {INSERT INTO stationBlockingRules (FIS, mode, station, user) VALUES ('FIS1','single','FRESH','test'), ('FIS2','single','FRESH','other')}
+    set fresh [::mysql::sel $work {SELECT FIS, mode, station, disabled, user FROM stationBlockingRules ORDER BY FIS} -list]
+    assert {$fresh eq {{FIS1 single FRESH 0 test} {FIS2 single FRESH 0 other}}} "Fresh rules must default to zero and preserve FIS isolation"
+    ::mysql::exec $work {DELETE FROM stationBlockingRules}
+    puts "PASS fresh rules schema starts empty and preserves FIS isolation"
     ::mysql::exec $work {INSERT INTO masterUnits VALUES ('SN1','SMT','GOOD',1,10,1000,0,50,10)}
     ::mysql::exec $work {INSERT INTO engineers VALUES ('SMT','engineer@example.test')}
     file mkdir $::env(MC_TEST_DIR)
@@ -153,6 +169,31 @@ try {
     assert {$php ne ""} "PHP CLI required for unlink check"
     exec {*}$php -r {if (!unlink($argv[1])) { exit(1); }} $path
     assert {![file exists $path]} "PHP could not unlink lock"
+
+    assert {[::MasterCheck::BREQ PRODUCTION SMT CON01] == 1} "No record must disable blocking"
+    ::mysql::exec $work {INSERT INTO stationBlockingRules VALUES ('FIS1','single','CON01',0,'test',NOW())}
+    assert {[::MasterCheck::LockStationMaster CON01] == 1} "Cannot prepare policy lock"
+    assert {[::MasterCheck::BREQ PRODUCTION SMT CON01] == 0} "Production must respect lock"
+    ::mysql::exec $work {DELETE FROM stationBlockingRules WHERE FIS='FIS1' AND station='CON01'}
+    ::mysql::exec $work {INSERT INTO stationBlockingRules VALUES ('FIS2','single','CON01',0,'test',NOW())}
+    assert {[::MasterCheck::BREQ PRODUCTION SMT CON01] == 1} "Record leaked from FIS2"
+    ::mysql::exec $work {INSERT INTO stationBlockingRules VALUES ('FIS1','single','CON01',0,'test',NOW())}
+    assert {[::MasterCheck::BREQ PRODUCTION SMT CON01] == 0} "Local record did not enable blocking"
+    assert {[file exists $path]} "Policy must not delete the existing lock"
+    ::mysql::exec $work {DELETE FROM stationBlockingRules}
+    assert {[::MasterCheck::BREQ PRODUCTION SMT CON01] == 1} "Deleting records must disable blocking"
+    assert {[::MasterCheck::UnlockStationMaster CON01] == 1} "Cannot clean policy lock"
+    puts "PASS station blocking exclusions and FIS isolation"
+    ::mysql::exec $work {INSERT INTO stationBlockingRules VALUES ('FIS1','prefix','FT',0,'test',NOW()), ('FIS1','prefix','FTS',1,'test',NOW()), ('FIS1','single','FTS001',0,'test',NOW())}
+    assert {[::MasterCheck::_BlockingEnabled $work FTS001] == 1} "Single override did not win"
+    foreach station {FTS002 FTS_TEST FTS001_A FTS999} {
+        assert {[::MasterCheck::_BlockingEnabled $work $station] == 1} "Prefix did not cover $station"
+    }
+    assert {[::MasterCheck::_BlockingEnabled $work XFTS001] == 0} "Prefix matched inside station name"
+    ::mysql::exec $work {DELETE FROM stationBlockingRules WHERE mode='single'}
+    assert {[::MasterCheck::_BlockingEnabled $work FTS001] == 1} "Removed exception did not inherit group"
+    ::mysql::exec $work {DELETE FROM stationBlockingRules}
+    puts "PASS literal prefix matching, single overrides and longest prefix"
     puts "PASS POSIX permissions and PHP unlink"
 
     set target [file join $::env(MC_TEST_DIR) target]

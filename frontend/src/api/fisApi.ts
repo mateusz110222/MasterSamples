@@ -117,6 +117,17 @@ export function getFisUnitHistoryUrl(unit: string, fis?: string | number): strin
 }
 
 export const fisApi = {
+    getStationTags: async (fis: FisTarget = 'FIS1'): Promise<ProcessTagItem[]> => {
+        const res = await apiRequest<unknown>(getRouterUrl(fis), { job: 'GetStationTags' });
+        const list = Array.isArray(res.data) ? res.data : [];
+        const tags = new Map<string, ProcessTagItem>();
+        for (const item of list) {
+            const record = typeof item === 'object' && item !== null ? item as Record<string, unknown> : null;
+            const key = String(record ? record.key ?? record.Key ?? record.station ?? record.name ?? record.tag ?? '' : item ?? '').trim();
+            if (key) tags.set(key, { key, description: String(record?.description ?? key) });
+        }
+        return Array.from(tags.values()).sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+    },
     getProcessTags: async (fis: FisTarget = 'FIS1'): Promise<ProcessTagItem[]> => {
         const res = await apiRequest<unknown>(getRouterUrl(fis), { job: 'GetProcessTags' });
         const list = Array.isArray(res.data) ? res.data : [];

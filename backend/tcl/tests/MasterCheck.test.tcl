@@ -33,6 +33,9 @@ namespace eval ::Test {
     variable mailReturn 1
     variable refreshActive ""
     variable transactions {}
+    variable exclusions {}
+    variable policyThrow 0
+    variable rules {}
 
     proc assert {condition {message "assertion failed"}} {
         if {![uplevel 1 [list expr $condition]]} { error $message }
@@ -49,7 +52,7 @@ namespace eval ::Test {
             queries {} logs {} mails {} handles 0 closed 0 updateAttempts 0
             committed 0 failures {} golden GOLDEN parent {} children {} find 1 archived 1
             fisThrow 0 connectThrow 0 affected 1 recipients {{eng@example.test}}
-            mailThrow 0 mailReturn 1 refreshActive {} transactions {} files {}
+            mailThrow 0 mailReturn 1 refreshActive {} transactions {} files {} exclusions {} policyThrow 0 rules {{FIS1 single CON01 0}}
         } { variable $key; set $key $value }
         variable rows
         set rows [dict create SN1 [record]]
@@ -59,7 +62,7 @@ namespace eval ::Test {
                 if {[file isdirectory $path]} { file delete $path } else { file delete $path }
             }
         } else { file mkdir $directory }
-        array set ::param {host mock user mock password {} port 3306 dbName masterSample}
+        array set ::param {host mock user mock password {} port 3306 dbName masterSample masterCheckFis FIS1}
         set ::MasterCheck::blockedDir $directory
         set ::MasterCheck::blockedGroup fis
     }
@@ -105,7 +108,10 @@ namespace eval ::Unit {
         set ::Unit::children $::Test::children
         return [expr {[llength $::Test::children] > 0}]
     }
-    proc GetStatus {unit} { set ::Unit::uk3 $::Test::golden; return 1 }
+    proc GetStatus {unit} {
+        set ::Unit::uk3 [expr {$unit in {PRODUCTION 42044644C841RR2611502CC010TEST} ? "NORMAL" : $::Test::golden}]
+        return 1
+    }
 }
 namespace eval ::Archive {
     proc GetAll {unit} { return $::Test::archived }
@@ -130,6 +136,22 @@ namespace eval ::mysql {
     proc isnull {value} { return [expr {$value eq "__NULL__"}] }
     proc sel {db sql args} {
         lappend ::Test::queries $sql
+        if {[string match "SELECT mode, station, disabled FROM stationBlockingRules*" $sql]} {
+            if {$::Test::policyThrow} { error "Blocking configuration unavailable" }
+            set policyRows {}
+            foreach {fis station} $::Test::exclusions {
+                if {[string first "FIS = '$fis'" $sql] >= 0 && [string first "station = '$station'" $sql] >= 0} {
+                    lappend policyRows [list single $station 1]
+                }
+            }
+            foreach row $::Test::rules {
+                lassign $row fis mode station disabled
+                if {[string first "FIS = '$fis'" $sql] >= 0 && [string first "'[escape $db $station]'" $sql] >= 0} {
+                    lappend policyRows [list $mode $station $disabled]
+                }
+            }
+            return $policyRows
+        }
         if {[string match "SELECT mail*" $sql]} { return $::Test::recipients }
         if {[string match "*FOR UPDATE" $sql] && $::Test::refreshActive ne ""} {
             dict set ::Test::rows SN1 isactive $::Test::refreshActive
@@ -654,13 +676,6 @@ proc ::Test::eiReply {message} {
         set value([string range $field 0 [expr {$separator - 1}]]) [string range $field [expr {$separator + 1}] end]
     }
     set replyType [expr {$operation eq "BREQ" ? "BCNF" : "BACK"}]
-    set lockPath [file join $::Test::directory "$value(station)_MASTER"]
-    if {![dict exists $::Test::rows $value(id)]} {
-        if {[file exists $lockPath]} {
-            return "$replyType|id=$value(id)|status=FAIL|msg=Station blocked, master check required"
-        }
-        return "$replyType|id=$value(id)|status=PASS"
-    }
     if {$operation eq "BREQ"} {
         set accepted [::MasterCheck::BREQ $value(id) $value(process) $value(station)]
     } else {
@@ -675,6 +690,7 @@ proc ::Test::eiReply {message} {
     set master [::Test::record 1B002Q1 SMT_SPI]
     dict set master status BAD
     set ::Test::rows [dict create 1B002Q1 $master]
+    set ::Test::rules {{FIS1 single SMT_L8_SPI1 0}}
     set station SMT_L8_SPI1
     set lockPath [file join $::Test::directory ${station}_MASTER]
 
@@ -709,6 +725,144 @@ proc ::Test::eiReply {message} {
     ::Test::equals $::Test::rows $afterCorrectResult
     ::Test::equals $::Test::updateAttempts 2
     ::Test::equals $::Test::committed 2
+    ::Test::checkCleanup
+}
+
+::Test::run production-breq-unlocked {
+    set before $::Test::rows
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    ::Test::equals $::Test::rows $before
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::checkCleanup
+}
+::Test::run production-breq-blocked {
+    ::MasterCheck::LockStationMaster CON01
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    ::Test::assert {[string match {*Station blocked, master check required*} $error]}
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::checkCleanup
+}
+::Test::run production-breq-exempt-keeps-existing-lock {
+    ::MasterCheck::LockStationMaster CON01
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    ::Test::assert {[file exists [::Test::lockPath]]}
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::checkCleanup
+}
+::Test::run exemption-is-scoped-to-fis {
+    ::MasterCheck::LockStationMaster CON01
+    set ::Test::rules {{FIS2 single CON01 0}}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    set ::param(masterCheckFis) FIS2
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    ::Test::checkCleanup
+}
+::Test::run policy-changes-apply-without-reload {
+    ::MasterCheck::LockStationMaster CON01
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    set ::Test::rules {{FIS1 single CON01 0}}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+}
+::Test::run exempt-master-still-validates-limits {
+    set ::Test::rules {}
+    dict set ::Test::rows SN1 currentCounter 1000
+    ::Test::equals [::MasterCheck::BREQ SN1 SMT CON01] 0
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::assert {![file exists [::Test::lockPath]]}
+}
+::Test::run exempt-mismatch-counts-without-lock {
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::BCMP SN1 SMT CON01 FAIL] 0
+    ::Test::equals [dict get $::Test::rows SN1 errorCounter] 1
+    ::Test::equals [dict get $::Test::rows SN1 globalCounter] 11
+    ::Test::assert {![file exists [::Test::lockPath]]}
+    ::Test::assert {![string match {*station*blocked*} $error]}
+}
+::Test::run exempt-match-counts-without-removing-lock {
+    ::MasterCheck::LockStationMaster CON01
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::BCMP SN1 SMT CON01 PASS] 1
+    ::Test::equals [dict get $::Test::rows SN1 currentCounter] 11
+    ::Test::assert {[file exists [::Test::lockPath]]}
+}
+::Test::run policy-read-failure-denies-and-cleans-up {
+    set ::Test::policyThrow 1
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::assert {![file exists [::Test::lockPath]]}
+    ::Test::checkCleanup
+}
+::Test::run invalid-fis-denies {
+    set ::param(masterCheckFis) FIS3
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    ::Test::checkCleanup
+}
+
+::Test::run prefix-rules-cover-all-names-and-future-stations {
+    set ::Test::rules {{FIS1 prefix FTS 1}}
+    set db [::MasterCheck::_Connect]
+    foreach name {FTS001 FTS_TEST FTS001_A FTS999} {
+        ::Test::equals [::MasterCheck::_BlockingEnabled $db $name] 1
+    }
+    foreach name {XFTS001 fts001 OTHER} {
+        ::Test::equals [::MasterCheck::_BlockingEnabled $db $name] 0
+    }
+    ::mysql::close $db
+    ::Test::checkCleanup
+}
+::Test::run single-rule-wins-and-removal-inherits {
+    set ::Test::rules {{FIS1 prefix FTS 1} {FIS1 single FTS001 0}}
+    set db [::MasterCheck::_Connect]
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db FTS001] 1
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db FTS002] 1
+    set ::Test::rules {{FIS1 prefix FTS 1}}
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db FTS001] 1
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db FTS001] 0
+    ::mysql::close $db
+}
+::Test::run longest-prefix-wins-in-any-row-order {
+    ::Test::equals [::MasterCheck::_RuleEnabled {{prefix FT 1} {prefix FTS 0}} FTS001] 1
+    ::Test::equals [::MasterCheck::_RuleEnabled {{prefix FTS 0} {prefix FT 1}} FTS001] 1
+    ::Test::equals [::MasterCheck::_RuleEnabled {{single FTS001 1} {prefix FTS 0}} FTS001] 1
+}
+::Test::run prefix-is-literal-and-fis-scoped {
+    set ::Test::rules {{FIS1 prefix SMT_ 1} {FIS2 prefix FTS 1}}
+    set db [::MasterCheck::_Connect]
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db SMT_L8] 1
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db SMTBL8] 0
+    ::Test::equals [::MasterCheck::_BlockingEnabled $db FTS001] 0
+    ::mysql::close $db
+}
+::Test::run corrupt-policy-rejected {
+    foreach rows {{{prefix FTS 2}} {{prefix {} 1}} {{other FTS 1}} {{single FTS001 1} {single FTS001 0}}} {
+        ::Test::equals [catch {::MasterCheck::_RuleEnabled $rows FTS001}] 1
+    }
+}
+
+if {[string first {DAL|ADS} [info body ::MasterCheck::_Record]] >= 0} {
+    ::Test::run dal-ads-exception-uses-explicit-station {
+        dict set ::Test::rows SN1 status BAD
+        ::Test::equals [::MasterCheck::BCMP SN1 SMT ADS01 PASS] 1
+        ::Test::equals [dict get $::Test::rows SN1 currentCounter] 11
+        ::Test::equals [dict get $::Test::rows SN1 errorCounter] 0
+    }
+}
+
+::Test::run record-presence-enables-blocking-and-absence-disables {
+    set ::Test::rules {}
+    ::MasterCheck::LockStationMaster CON01
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    set ::Test::rules {{FIS1 prefix CON 0}}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    set ::Test::rules {{FIS1 prefix CON 1}}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 0
+    set ::Test::rules {}
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION SMT CON01] 1
+    ::Test::assert {[file exists [::Test::lockPath]]}
+    ::Test::equals $::Test::updateAttempts 0
     ::Test::checkCleanup
 }
 

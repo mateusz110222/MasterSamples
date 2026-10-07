@@ -34,6 +34,8 @@ export const MainLayout: React.FC = () => {
                     title: t.headerBlockedTitle,
                     sub: t.headerBlockedSub
                 };
+            case '/admin/station-blocking':
+                return { title: t.stationBlockingTitle, sub: t.stationBlockingDescription };
             case '/admin/processes':
                 return {
                     title: t.headerEngineersTitle,
@@ -44,6 +46,8 @@ export const MainLayout: React.FC = () => {
                     title: t.headerHistoryTitle,
                     sub: t.headerHistorySub
                 };
+            case '/documentation':
+                return { title: t.headerDocumentationTitle, sub: t.headerDocumentationSub };
             default:
                 return {
                     title: 'Master Samples Dashboard',

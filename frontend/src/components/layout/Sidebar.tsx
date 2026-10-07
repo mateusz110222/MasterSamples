@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavLink } from 'react-router';
 import {
     LayoutDashboard,
@@ -9,9 +9,12 @@ import {
     X,
     Code2,
     LogOut,
+    ShieldOff,
+    BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { useLanguage } from '../../i18n/useLanguage';
+import { useExitPresence } from '../../hooks/useExitPresence';
 
 interface SidebarProps {
     mobileOpen: boolean;
@@ -22,13 +25,28 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose, onLogout }) => {
     const { canEdit, user } = useAuth();
     const { t } = useLanguage();
+    const mobileMounted = useExitPresence(mobileOpen);
+    useEffect(() => {
+        if (!mobileOpen) return;
+        const desktop = window.matchMedia('(min-width: 1024px)');
+        if (desktop.matches) { onMobileClose(); return; }
+        const overflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onMobileClose(); };
+        const onResize = (event: MediaQueryListEvent) => { if (event.matches) onMobileClose(); };
+        desktop.addEventListener('change', onResize);
+        window.addEventListener('keydown', onKeyDown);
+        return () => { document.body.style.overflow = overflow; window.removeEventListener('keydown', onKeyDown); desktop.removeEventListener('change', onResize); };
+    }, [mobileOpen, onMobileClose]);
 
     const navItems = [
         { to: '/', label: t.navDashboard, icon: LayoutDashboard, exact: true },
         ...(canEdit ? [{ to: '/create', label: t.navCreate, icon: PlusCircle, exact: false }] : []),
         { to: '/blocked-machines', label: t.navBlocked, icon: Cpu, exact: false },
+        ...(canEdit ? [{ to: '/admin/station-blocking', label: t.navStationBlocking, icon: ShieldOff, exact: false }] : []),
         ...(canEdit ? [{ to: '/admin/processes', label: t.navEngineers, icon: Mail, exact: false }] : []),
         { to: '/history', label: t.navHistory, icon: History, exact: false },
+        { to: '/documentation', label: t.navDocumentation, icon: BookOpen, exact: false },
     ];
 
     const navigation = (onNavigate?: () => void) => (
@@ -99,24 +117,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose, onL
                 {user && logoutButton()}
             </aside>
 
-            {mobileOpen && (
-                <div className="lg:hidden">
+            {mobileMounted && (
+                <div className="lg:hidden" inert={!mobileOpen} aria-hidden={!mobileOpen}>
                     <button
                         type="button"
-                        className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm"
+                        className={`fixed inset-0 z-40 bg-black/65 backdrop-blur-sm ${mobileOpen ? 'animate-modal-backdrop' : 'animate-modal-backdrop-out'}`}
                         onClick={onMobileClose}
                         aria-label={t.closeNavigation}
                     />
                     <aside
                         id="mobile-navigation"
-                        className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-brand-border bg-brand-surface shadow-2xl animate-drawer-in"
+                        className={`fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-brand-border bg-brand-surface shadow-2xl ${mobileOpen ? 'animate-drawer-in' : 'animate-drawer-out'}`}
                     >
                         <div className="flex items-center justify-between border-b border-brand-border p-5">
                             <span className="text-lg font-black tracking-wider text-brand-accent">{t.appName}</span>
                             <button
                                 type="button"
                                 onClick={onMobileClose}
-                                className="flex size-10 items-center justify-center rounded-lg border border-brand-border text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text"
+                                className="flex size-10 items-center justify-center rounded-lg border border-brand-border text-brand-text-muted hover:bg-brand-surface-high hover:text-brand-text transition-colors duration-200"
                                 aria-label={t.closeNavigation}
                             >
                                 <X size={20} />

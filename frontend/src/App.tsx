@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './auth/AuthContext';
@@ -12,6 +12,9 @@ import { HistoryView } from './views/HistoryView';
 import { LoginView } from './views/LoginView';
 import { RequireAuth } from './auth/RequireAuth';
 import { RequireEdit } from './auth/RequireEdit';
+import { StationBlockingView } from './views/StationBlockingView';
+
+const DocumentationView = lazy(() => import('./views/DocumentationView').then(module => ({ default: module.DocumentationView })));
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -41,8 +44,10 @@ export const App: React.FC = () => {
                                 <Route path="/" element={<DashboardView />} />
                                 <Route path="/create" element={<RequireEdit><CreateMasterView /></RequireEdit>} />
                                 <Route path="/blocked-machines" element={<BlockedMachinesView />} />
+                                <Route path="/admin/station-blocking" element={<RequireEdit><StationBlockingView /></RequireEdit>} />
                                 <Route path="/admin/processes" element={<RequireEdit><EngineersView /></RequireEdit>} />
                                 <Route path="/history" element={<HistoryView />} />
+                                <Route path="/documentation" element={<Suspense fallback={<div className="min-h-40 animate-pulse rounded-2xl border border-brand-border bg-brand-surface" aria-busy="true" />}><DocumentationView /></Suspense>} />
                             </Route>
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>

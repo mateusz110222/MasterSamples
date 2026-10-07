@@ -1,170 +1,103 @@
-# Master Samples Dashboard (React 19 + TypeScript + PHP)
+# Master Samples
 
-Nowoczesny system monitoringu i zarządzania jednostkami wzorcowymi (Golden Samples / Master Samples) w środowisku produkcyjnym, stworzony na podstawie architektury i systemu projektowego aplikacji **Paletki**.
+[Polski](README.md) | [English](README.en.md)
 
----
+System ewidencji jednostek wzorcowych (Golden / Master Samples), kontroli
+liczników i obsługi blokad stacji produkcyjnych na FIS1/FIS2.
 
-## 🚀 Architektura i Moduły
+## Zacznij od instrukcji HTML
 
-Aplikacja składa się z dwóch niezależnych części:
-1. **Frontend (`frontend/`)**:
-   - **React 19 + TypeScript + Vite + Tailwind CSS v4**
-   - **@tanstack/react-query**: inteligentne pobieranie, cache i mutacje w czasie rzeczywistym
-   - **lucide-react**: zestaw ikon przemysłowych
-   - **React Router (HashRouter)**: pełna kompatybilność z serwerami Apache bez potrzeby konfiguracji `mod_rewrite`
-   - Spójny design system z aplikacją **Paletki**: industrial dark mode (`#090d16`, `#111827`, `#1f2937`, `#6366f1`), fonty Plus Jakarta Sans / JetBrains Mono.
+Otwórz dwuklikiem [docs/MasterSamples.html](docs/MasterSamples.html).
+Dokumentacja PL/EN działa bez uruchamiania aplikacji, serwera, Node ani internetu.
+Możesz przekazać sam plik HTML osobie odpowiedzialnej za wdrożenie.
 
-2. **Backend (`backend/MasterDashboard.php`)**:
-   - Pojedynczy, zoptymalizowany plik PHP obsługujący żądania przez parametr `?job=...`
-   - Integracja z biblioteką FIS: `/custom/matz/phpBB/BuildingBlocks.php` (`Unit`, `Archive`, `Lib`)
-   - Połączenie MySQL z bazą `masterSample` przez `/fis/mantis/custom/database/config.ini`
-   - Zarządzanie plikami blokad w `/fis/mantis/data/blocked_machines/`
-   - Integracja z uwierzytelnianiem `/custom/auth/GetUserName.php`
+Po instalacji ta sama treść jest w zakładce **Dokumentacja** (`#/documentation`).
+Obie wersje obejmują obsługę widoków, liczniki, blokady, API, nową instalację
+MySQL i integrację stacji przez `loadcstpkgs`.
 
----
+## Struktura projektu
 
-## 🖥️ Dostępne Widoki Aplikacji
+| Katalog | Zawartość |
+| --- | --- |
+| `frontend/` | React, TypeScript, Vite, Tailwind; widoki PL/EN, testy i generator HTML |
+| `backend/MasterDashboard.php` | Endpoint PHP dla FIS1 |
+| `backend/FIS2/` | Endpoint PHP przeznaczony dla FIS2 |
+| `backend/migrations/` | SQL nowej instalacji i kontrola struktury |
+| `backend/tcl/` | MasterCheck, warianty Tcl i testy |
+| `docs/` | Gotowa, samodzielna dokumentacja HTML |
 
-1. **Dashboard Masterów (`/`)**:
-   - Karty KPI: Aktywne, Status GOOD/BAD, Blisko limitu (>80%), Wykryte błędy, Zablokowane (Dead).
-   - Tabela jednostek z wizualnymi paskami postępu liczników zużycia i błędów.
-   - Akcje na każdym rekordzie:
-     - **Reset Liczników** (zerowanie ze wpisem do `history`, blokada dla jednostek dead `isActive = 2`).
-     - **Zablokuj / Aktywuj Mastera** (zmiana `isActive = 2` lub `1` z audytem).
-     - **Historia Mastera** (modal z pełnym dziennikiem zdarzeń dla danego numeru SN).
-     - **Usuń z bazy** (fizyczne usunięcie `DELETE FROM masterUnits` z uprzednim wpisem audytu w `history`).
-2. **Dodaj Mastera (`/create`)**:
-   - Tryby: **Single Process** (pojedynczy proces) oraz **Multiple Processes** (wiele procesów jednocześnie).
-   - Tagi procesów pobierane z `/custom/matz/phpBB/router.php?job=GetProcessTags`.
-   - Procedura FIS przed zapisem: `Unit::Find` $\rightarrow$ `Archive::GetAll` $\rightarrow$ `Archive::Unarchive` $\rightarrow$ `Unit::Delete` $\rightarrow$ `Unit::DataEntry`.
-   - W przypadku istniejącego SN: automatyczne okno porównania starych i nowych parametrów z prośbą o zatwierdzenie aktualizacji.
-3. **Zablokowane Maszyny (`/blocked-machines`)**:
-   - Skanowanie katalogu `/fis/mantis/data/blocked_machines/` na FIS 1 i FIS 2, z kolumną serwera FIS.
-   - Podział na maszynę i prefiks (`<machine>_<prefix>`), data zablokowania.
-   - Odblokowanie usuwa plik przez endpoint serwera wskazanego w wierszu; identyczne nazwy na obu serwerach pozostają osobnymi wpisami.
-   - Błąd jednego FIS jest widoczny, a dane z drugiego nadal są wyświetlane.
-4. **Grupy Mailowe Inżynierów (`/admin/processes`)**:
-   - Tabela `masterSample.engineers` (`id`, `process`, `mail`).
-   - Edycja istniejących maili (z autouzupełnianiem znanych grup) oraz dodawanie nowych procesów.
-5. **Historia i Audyt (`/history`)**:
-   - Kompletny dziennik zdarzeń tabeli `masterSample.history`.
-   - Filtrowanie po numerze SN, rodzaju operacji (`Create`, `Update`, `Reset`, `Block`, `Delete`), użytkowniku i dacie.
+## Nowa instalacja MySQL
 
----
+Wykonaj raz na każdej odrębnej bazie, w kolejności:
 
-## 🛠️ Uruchomienie Lokalne (Development)
+1. `backend/migrations/001_initial_schema.sql` — nowa baza i tabele podstawowe.
+2. `backend/migrations/002_station_blocking_rules.sql` — tabela reguł stacji.
+3. `backend/migrations/003_verify_installation.sql` — kontrola bez zmian danych.
 
-Moduł stacyjny Tcl **MasterCheck 1.3.0** oraz testy i instrukcja wdrożenia
-znajdują się w [`backend/tcl/README.md`](backend/tcl/README.md). Wymaga Tcl 8.6
-i dotychczasowych plików konfiguracji FIS; korzysta z globalnego `param`.
+Pierwszy skrypt jest przeznaczony dla nowej bazy i zgłasza błąd, jeśli już istnieje.
+Przy współdzielonej bazie FIS1/FIS2 nie wykonuj tworzenia dwa razy.
+Jeżeli brakuje wyłącznie tabeli reguł, szczegóły są w
+[backend/migrations/README.md](backend/migrations/README.md).
+Stare migracje aktualizacyjne zostały usunięte. Zestaw nie importuje starych wyłączeń.
+Pusta tabela reguł oznacza wyłączoną obsługę blokad `_MASTER`; rzeczywiste
+rekordy stacji/prefiksu dodaj przez dashboard po uruchomieniu.
 
-Aplikację można uruchomić lokalnie przez Vite:
+## Podgląd i budowa frontendu
 
-```bash
+Wymagane: Node.js 22.18+ z gałęzi 22 albo Node.js 24+ i npm.
+
+```sh
 cd frontend
 npm install
 npm run dev
 ```
 
-Aplikacja uruchomi się pod adresem `http://localhost:3000`.
-Bez serwera Apache i endpointów FIS widoki wymagające danych pokażą błąd pobierania; projekt nie zawiera wbudowanego mocka API.
+Otwórz `http://localhost:3000/custom/matz/MasterSamples/` i wybierz gościa.
+Widoki danych wymagają rzeczywistych endpointów FIS. Dokumentacja nie pobiera
+danych produkcyjnych. Terminal z Vite musi pozostać uruchomiony.
 
----
-
-## 📦 Budowanie i Wdrożenie na Serwer Produkcyjny
-
-### 1. Budowanie Frontendu
-W katalogu `frontend/` wykonaj:
-```bash
+```sh
 npm run build
-```
-Wynik kompilacji znajdzie się w katalogu `frontend/dist/`:
-- `dist/index.html`
-- `dist/assets/*.js`
-- `dist/assets/*.css`
-
-### 2. Kopiowanie na Serwer
-Obsługa blokad FIS 2 wymaga wdrożenia również `backend/FIS2/MasterDashboard.php`
-na `plblofis2.global.borgwarner.net` pod `/custom/matz/php/MasterDashboard.php`.
-Ten endpoint obsługuje teraz `GetBlockedMachines` i `DeleteBlockedMachine`.
-
-Przed wdrożeniem zaktualizowanych backendów wykonaj jednorazowo w bazie
-`masterSample` migrację `backend/migrations/20260930_history_fis.sql`.
-Dodaje ona nullable kolumnę `history.FIS`. Nowe zdarzenia zapisują serwer FIS
-z rekordu mastera; stare wpisy pozostają bez tej informacji i bez linku do FIS,
-ponieważ aktualny serwer nie dowodzi lokalizacji jednostki w chwili zdarzenia.
-
-1. **Backend PHP**:
-   Skopiuj plik `backend/MasterDashboard.php` do docelowego katalogu:
-   `/custom/matz/php/MasterDashboard.php`
-
-2. **Frontend**:
-   Zawartość katalogu `frontend/dist/` (plik `index.html` oraz folder `assets/`) skopiuj do katalogu docelowego, np.:
-   `/custom/matz/` lub `/cst_auth/masterSamples/`
-
-> `CreateMaster` może być wysyłany do FIS 1 albo FIS 2. Ten sam aktualny plik
-> `backend/MasterDashboard.php` musi być wdrożony na obu hostach pod ścieżką
-> `/custom/matz/php/MasterDashboard.php`. Pozostałe operacje nadal korzystają
-> z backendu hosta, na którym otwarto dashboard.
->
-> Gotowa kopia dla drugiego serwera znajduje się w
-> `backend/FIS2/MasterDashboard.php`. Na hoście FIS 2 należy wgrać ją jako
-> `/custom/matz/php/MasterDashboard.php`; jej bezpieczna wartość domyślna to `FIS2`.
-> Operacja `DeleteMaster` jest również kierowana na host wskazany w kolumnie
-> `FIS` i przed usunięciem rekordu z bazy wywołuje `Unit::Delete()` z biblioteki
-> `/custom/matz/phpBB/BuildingBlocks.php`.
-
----
-
-## 🗄️ Schemat Bazy Danych (`masterSample`)
-
-### 1. Tabela `masterUnits`
-```sql
-CREATE TABLE `masterUnits` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `unit` varchar(100) NOT NULL,
-  `process` varchar(100) NOT NULL,
-  `status` varchar(100) NOT NULL,
-  `currentCounter` int(11) DEFAULT 0,
-  `maxCounter` int(11) DEFAULT NULL,
-  `errorCounter` int(11) DEFAULT 0,
-  `errorMaxCounter` int(11) DEFAULT NULL,
-  `globalCounter` int(11) DEFAULT 0,
-  `user` varchar(100) DEFAULT NULL,
-  `isactive` int(11) DEFAULT 1,
-  `FIS` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `unit` (`unit`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+npm test
+npm run lint
 ```
 
-### 2. Tabela `history`
-```sql
-CREATE TABLE `history` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `unit` varchar(100) NOT NULL,
-  `process` varchar(100) DEFAULT NULL,
-  `status` varchar(100) DEFAULT NULL,
-  `currentCounter` int(11) DEFAULT NULL,
-  `maxCounter` int(11) DEFAULT NULL,
-  `errorCounter` int(11) DEFAULT NULL,
-  `errorMaxCounter` int(11) DEFAULT NULL,
-  `globalCounter` int(11) DEFAULT NULL,
-  `FIS` varchar(100) DEFAULT NULL,
-  `user` varchar(100) DEFAULT NULL,
-  `operation` varchar(50) DEFAULT NULL,
-  `date` datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-```
+Budowa generuje dokumentację offline i aplikację w `frontend/dist/`.
+Na produkcji skopiuj **zawartość** `dist/` do `/custom/matz/MasterSamples/`.
+Dla innej ścieżki zmień `base` w `frontend/vite.config.ts` i zbuduj ponownie.
+Pliku aplikacji `dist/index.html` nie otwieraj dwuklikiem.
 
-### 3. Tabela `engineers`
-```sql
-CREATE TABLE `engineers` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `process` varchar(100) NOT NULL,
-  `mail` varchar(100) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `process` (`process`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-```
+Wdróż odpowiednie endpointy PHP na FIS1 i FIS2 pod
+`/custom/matz/php/MasterDashboard.php`. Biblioteki i konfiguracja FIS muszą
+być dostępne na obu hostach. PHP oraz Tcl danego FIS korzystają z tej samej bazy reguł.
+
+## Centralne ładowanie Tcl
+
+Router PHP korzysta z biblioteki BB na serwerze:
+`/fis/mantis/custom/www/matz/phpBB/BuildingBlocks.php`.
+Sprawdź jej dostępność na obu FIS podczas wdrożenia.
+
+Dostęp do aplikacji określa **masterSamplesDashboard.acl** dla grup FIS:
+`testeng`, `proceng`, `golden_samples`, `fisadmin_group`, `admin_group`.
+ACL serwera jest niezależna od uprawnień zapisu `canEdit` w aplikacji;
+tryb gościa nie omija ACL.
+
+`/fis/mantis/custom/apps/local/lib/BB/loadcstpkgs` rejestruje i ładuje
+`MasterCheck 1.3` z pliku `$_sysvar(CSTBBDIR)/mastercheck.tcl` dla wszystkich
+skryptów. Nie dodawaj kolejnych `package require` w handlerach stacji.
+Wybierz `MasterCheck.tcl` dla Tcl 8.6+ albo `MasterCheck85.tcl` dla Tcl 8.5.7+,
+a wybrany plik skopiuj na serwer jako `mastercheck.tcl`.
+
+Wywołania BREQ/BCMP z odpowiedziami `BCNF` i `BACK`, sposób ładowania oraz
+wariant BREQ dla wszystkich SN opisuje
+[backend/tcl/README.md](backend/tcl/README.md). Warunek tylko GOLDEN nie
+uruchamia kontroli blokady przez BREQ dla zwykłych SN.
+
+## Utrzymanie dokumentacji
+
+Wspólna treść PL/EN: `frontend/src/documentation/content.ts`.
+Po zmianie wykonaj w `frontend/` `npm run docs:build` albo `npm run build`.
+`npm run docs:check` wykrywa rozbieżność HTML względem źródła.
+Zachowuj identyfikatory rozdziałów, aby zapisane adresy nadal działały.
+
+Szczegóły poleceń frontendu: [frontend/README.md](frontend/README.md).

@@ -5,6 +5,7 @@ import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 import { DashboardModals } from '../components/dashboard/DashboardModals';
+import { EditMasterModal } from '../components/dashboard/EditMasterModal';
 import { getLocalizedErrorMessage } from '../lib/errors';
 import { useMasterActions, useMasterHistoryQuery, useMastersQuery } from '../hooks/useMasters';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -23,6 +24,7 @@ import {
 } from '../lib/masterUtils';
 import {
     Plus,
+    Pencil,
     Download,
     Search,
     RotateCcw,
@@ -116,6 +118,7 @@ export const DashboardView: React.FC = () => {
     const [resetTypeChoice, setResetTypeChoice] = useState<ResetType>('all');
     const [blockTarget, setBlockTarget] = useState<{ units: string[]; block: boolean } | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<MasterUnit | null>(null);
+    const [editTarget, setEditTarget] = useState<MasterUnit | null>(null);
     const [historyTarget, setHistoryTarget] = useState<MasterUnit | null>(null);
     const [actionError, setActionError] = useState<unknown>(null);
 
@@ -712,7 +715,14 @@ export const DashboardView: React.FC = () => {
                                                             <History size={16} />
                                                         </button>
 
-                                                        {/* Reset liczników */}
+                                                        {/* Edycja procesów i limitów */}
+                                                        <button type="button" onClick={() => setEditTarget(m)} disabled={!canEdit}
+                                                            title={!canEdit ? t.readOnlyTooltip : t.editMasterTitle}
+                                                            aria-label={`${t.editMasterTitle}: ${m.unit}`}
+                                                            className="rounded-lg p-2 text-brand-text-muted hover:bg-brand-accent/10 hover:text-brand-accent transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">
+                                                            <Pencil size={16} />
+                                                        </button>
+
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -808,6 +818,7 @@ export const DashboardView: React.FC = () => {
                 retryHistory={() => { void refetchHistory(); }}
                 historyLoading={historyLoading}
             />
+            {editTarget && <EditMasterModal key={`${editTarget.FIS}:${editTarget.unit}`} master={editTarget} onClose={() => setEditTarget(null)} />}
         </div>
     );
 };

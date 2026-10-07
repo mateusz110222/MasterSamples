@@ -1,5 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./";
+@source "../index.html";
 
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -411,6 +413,33 @@ html:has(.staff-screen) {
   animation: drawerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes drawerIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes drawerOut {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+.animate-drawer-out {
+  animation: drawerOut 0.2s ease-in both;
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dropdownOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-4px); }
+}
+
+.animate-dropdown-in { animation: dropdownIn 0.16s ease-out both; }
+.animate-dropdown-out { animation: dropdownOut 0.12s ease-in both; }
+
 /* Interactive Hover & Lift micro-animations */
 .hover-lift {
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease;
@@ -508,6 +537,11 @@ html:has(.staff-screen) {
   .animate-modal-pop-out,
   .animate-row-enter,
   .animate-drawer-in,
+  .animate-drawer-out,
+  .animate-dropdown-in,
+  .animate-dropdown-out,
+  .animate-modal-backdrop,
+  .animate-modal-backdrop-out,
   .interactive-button,
   .hover-lift,
   .interactive-pill,

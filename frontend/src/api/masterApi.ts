@@ -43,11 +43,27 @@ export interface CreateMasterResult {
     operation?: string;
 }
 
+export interface UpdateMasterPayload {
+    unit: string;
+    fis: FisTarget;
+    process: string;
+    maxCounter: number;
+    maxErrors: number;
+}
+
 export interface DeleteMasterOptions {
     fisOnly?: boolean;
 }
 
 export const masterApi = {
+    updateMaster: async (payload: UpdateMasterPayload): Promise<ApiResponse<{ unit: string; changed: boolean }>> => {
+        const session = getSessionUser();
+        return apiRequest(getCreateMasterUrl(payload.fis), { job: 'UpdateMaster' }, {
+            method: 'POST',
+            body: JSON.stringify({ ...payload, user: session.uid || undefined, userName: session.name || undefined,
+                userGroups: session.groups.length ? session.groups : undefined }),
+        });
+    },
     getMasters: async (filters: GetMastersFilters = {}): Promise<MasterUnit[]> => {
         const res = await apiRequest<MasterUnit[]>(API_BASE, { job: 'GetMasters', ...filters });
         return res.data || [];

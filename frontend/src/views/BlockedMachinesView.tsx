@@ -47,6 +47,7 @@ export const BlockedMachinesView: React.FC = () => {
         onMutate: () => setActionError(null),
         onSuccess: () => {
             void queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
+            void queryClient.invalidateQueries({ queryKey: ['history'] });
             setDeleteTarget(null);
         },
         onError: (error: unknown) => setActionError(error),

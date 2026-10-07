@@ -1,34 +1,121 @@
 # MasterCheck 1.3.0
 
-Moduł Tcl do sprawdzania masterów, naliczania wyników i obsługi plików blokad.
-Wariant dla Tcl **8.5.7** znajduje się w `MasterCheck85.tcl`. Zachowuje te same
-wywołania, tablice danych, globalne `param` i wyniki `1`/`0`. Używa `catch`
-zamiast `try`, z jawnym zamykaniem plików i połączeń. `dict` jest używany tylko
-do opcji błędów (obsługiwanych przez [catch w Tcl 8.5](https://www.tcl-lang.org/man/tcl8.5/TclCmd/catch.htm)).
-W tym wariancie jest także kontrola poprawności nazwy stacji.
-`pkgIndex.tcl` wybiera `MasterCheck85.tcl` dla Tcl 8.5 i `MasterCheck.tcl`
-dla Tcl 8.6+. Nie ładuj obu wariantów do jednego interpretera.
+[Polski](README.md) | [English](README.en.md)
 
-Podstawowy wariant wymaga Tcl 8.6+, alternatywny Tcl 8.5.7+.
-Oba wymagają mysqltcl 3.x, MySQL 8 / InnoDB i bibliotek FIS `Unit`, `Archive`,
-`Lib`, `Mail`. Ładują dotychczasową konfigurację FIS i korzystają z globalnego `param`.
+Moduł Tcl sprawdza mastery, nalicza wyniki i obsługuje pliki blokad.
+`MasterCheck.tcl` wymaga Tcl 8.6+, `MasterCheck85.tcl` — Tcl 8.5.7+.
+Oba korzystają z mysqltcl 3.x, MySQL 8 / InnoDB, bibliotek FIS
+`Unit`, `Archive`, `Lib`, `Mail` i globalnego `param`.
 
-## Konfiguracja i API
+## Centralne ładowanie przez loadcstpkgs
 
-Skopiuj `MasterCheck.tcl`, `MasterCheck85.tcl` oraz `pkgIndex.tcl` do katalogu pakietu dostępnego dla
-FIS. W skrypcie stacji, po załadowaniu bibliotek FIS:
+W tym środowisku biblioteki, w tym mysqltcl, są ładowane dla wszystkich skryptów.
+W pliku `/fis/mantis/custom/apps/local/lib/BB/loadcstpkgs` sprawdź wpis:
 
 ```tcl
-package require mysqltcl 3.0
-package require MasterCheck 1.3.0
+if { [file exists [file join $_sysvar(CSTBBDIR) mastercheck.tcl]] } {
+    package ifneeded MasterCheck 1.3 [list source [file join $_sysvar(CSTBBDIR) mastercheck.tcl]]
+}
 
-if {![MasterCheck::BREQ $unit $process $station]} {
-    # Zatrzymaj dalszy test i pokaż $::MasterCheck::error.
+# Ładowanie centralne — dostępne dla każdego skryptu.
+package require MasterCheck 1.3
+```
+
+Wybrany wariant z repozytorium skopiuj jako **mastercheck.tcl** do katalogu
+`$_sysvar(CSTBBDIR)`. Nazwa ma znaczenie na serwerze rozróżniającym wielkość liter.
+Nie ładuj obu wariantów. Nie powtarzaj `package require mysqltcl` ani
+`package require MasterCheck` w handlerach BREQ/BCMP.
+Zrestartuj procesy korzystające z bibliotek; w procesie FIS sprawdź:
+
+```tcl
+info patchlevel
+package present MasterCheck
+info commands ::MasterCheck::BREQ
+```
+
+Wymaganie 1.3 jest zgodne z wersją 1.3.0 udostępnianą przez moduł.
+`pkgIndex.tcl` pozostaje jako alternatywa standardowego mechanizmu pakietów
+oraz testów; centralny loader wskazuje bezpośrednio `mastercheck.tcl`.
+
+## MySQL — nowa instalacja
+
+W każdej odrębnej bazie używanej przez PHP i Tcl wykonaj po kolei:
+
+1. `backend/migrations/001_initial_schema.sql` — nowa baza i tabele podstawowe.
+2. `backend/migrations/002_station_blocking_rules.sql` — tabela reguł.
+3. `backend/migrations/003_verify_installation.sql` — kontrola struktury.
+
+Jeżeli oba FIS współdzielą bazę, nie powtarzaj jej tworzenia. Jeżeli aktualne
+tabele podstawowe już istnieją, a brakuje tylko reguł, użyj 002 i 003.
+Ten zestaw nie importuje starych wyłączeń. Nie tworzy `stationBlockingExclusions`.
+Pusta tabela oznacza wyłączone blokowanie `_MASTER`; brak tabeli lub błąd SQL
+powoduje odmowę, nie wyłączenie kontroli. Obecność rekordu włącza blokowanie;
+kolumna `disabled` jest zachowana dla obecnego PHP i zawsze zapisywana jako 0.
+
+## BREQ w istniejącym handlerze GOLDEN
+
+```tcl
+if { $param(uk3) eq "GOLDEN" } {
+    if { ![MasterCheck::BREQ $value(id) $param(process) $param(station)] } {
+        set param(reply) "BCNF|id=$value(id)|status=$param(fStat)|msg=$error"
+        return 0
+    }
+}
+```
+
+## BCMP w handlerze wyniku mastera
+
+```tcl
+if { ![MasterCheck::BCMP $value(id) $value(process) $station $value(status)] } {
+    set param(reply) "BACK|id=$value(id)|status=$param(fStat)|msg=$error"
     return 0
 }
-# Uruchom test; wynik musi być PASS albo FAIL.
-return [MasterCheck::BCMP $unit $process $station $status]
 ```
+
+Wywołuj BCMP dla testów masterów; `value(status)` musi być PASS albo FAIL.
+
+## Reguły dashboardu i zwykłe SN
+
+Powyższy warunek GOLDEN pomija BREQ dla zwykłych SN. Jeśli reguły dashboardu
+mają sterować ich dopuszczaniem, zastosuj poniższy wariant BREQ dla każdego SN,
+bez zewnętrznego warunku GOLDEN i bez osobnego sprawdzania pliku `_MASTER`:
+
+```tcl
+if { ![MasterCheck::BREQ $value(id) $param(process) $param(station)] } {
+    set param(reply) "BCNF|id=$value(id)|status=$param(fStat)|msg=$error"
+    return 0
+}
+```
+
+Kod handlera EI nie jest częścią repozytorium — zmień go na stacji podczas
+wdrożenia. BREQ dla zwykłego SN odczytuje konfigurację i plik blokady, nie
+wymaga mastera i nie nalicza testu. Dla GOLDEN kontroluje master/panel,
+aktywność, proces i limity. BCMP nadal pozostaje w ścieżce wyników masterów.
+
+Widok **Blokowanie stacji** zapisuje reguły `single` lub `prefix` osobno dla
+FIS1/FIS2. Dopasowanie prefiksu jest literalne i rozróżnia wielkość liter.
+Rekord `APR` obejmuje także przyszłe stacje zaczynające się od `APR`.
+Usunięcie rekordu wyłącza blokowanie tylko gdy nie pasuje inny rekord;
+nie usuwa istniejącego pliku. GOLDEN i liczniki pozostają kontrolowane.
+Po ponownym włączeniu istniejący plik znów obowiązuje.
+
+API: `GetStationBlockingRules` z `fis`; POST `SetStationBlocking` i
+`DeleteStationBlockingRule` z `{fis, mode, station}`. `mode`: `single` lub
+`prefix`. Zapis włącza blokowanie; nie używaj `disabled` jako przełącznika.
+Zapisy i usunięcia są audytowane. Nie ma cache konfiguracji: kolejne
+BREQ/BCMP odczytuje aktualne reguły.
+
+Na hostach innych niż `plblofis1` / `plblofis2` ustaw przed pierwszym wywołaniem:
+
+```tcl
+set param(masterCheckFis) "FIS1" ;# na FIS2: "FIS2"
+```
+
+Wdrożenie: SQL, odpowiedni PHP dla każdego FIS, frontend, właściwy wariant
+`mastercheck.tcl` i centralny loader, następnie handler EI. Sprawdź jedną stację:
+zwykły SN, GOOD/BAD, oba wyniki, limity, prefix, usunięcie reguły i audyt.
+Ręczne `LockStationMaster` / `UnlockStationMaster` oraz odblokowanie z dashboardu
+są operacjami administracyjnymi niezależnymi od konfiguracji reguł.
 
 Moduł sam ładuje `/fis/mantis/common/config/system/system.cfg`, ustawia
 globalne `param(dbName)` na `masterSample`, następnie ładuje
@@ -56,6 +143,28 @@ powinna korzystać z `BCMP`. Stary ogólny `SafeUpdate` zastąpiono wewnętrznym
 ponawianiem całej transakcji i nie należy już go wywoływać spoza modułu.
 
 ## Blokady i uprawnienia
+
+Automatyczna blokada to `<stacja>_MASTER` w katalogu `blocked_machines`.
+Tworzenie i usuwanie pliku wymaga wcześniej odczytanej, pasującej reguły stacji
+lub prefiksu dla danego FIS. Sama obecność reguły nie tworzy pliku.
+
+Domyślnie GOOD/PASS i BAD/FAIL są zgodne: po COMMIT BCMP usuwa blokadę.
+GOOD/FAIL i BAD/PASS są niezgodne: po zapisie błędu BCMP tworzy lub zachowuje
+blokadę i zwraca 0. **Wyjątek w MasterCheck85.tcl:** BAD/PASS także jest zgodne,
+jeśli nazwa stacji zawiera DAL lub ADS (wielkie litery). MasterCheck.tcl tego
+wyjątku nie ma. FAIL testera i zwrot 0 z funkcji to odrębne informacje.
+
+Nieaktywny master, błędny proces, brak lub niejednoznaczny wybór mastera,
+nieprawidłowe dane i osiągnięte limity powodują odmowę oraz próbę blokady,
+jeśli pasującą regułę już odczytano. Awaria połączenia lub odczytu reguł
+zwraca 0, ale utworzenie pliku nie jest wtedy gwarantowane.
+
+BREQ zwykłego SN nie usuwa blokady. Poprawny GOLDEN może przejść BREQ mimo
+istniejącego pliku, aby wykonać test odblokowujący. Samo BREQ nie odblokowuje.
+Limit jest sprawdzany przed naliczeniem: zgodny test 99/100 może zapisać 100/100
+i odblokować, a następna kontrola odmówi i spróbuje zablokować stację.
+Po zapisie liczników awaria usunięcia pliku nie cofa testu; nie powtarzaj BCMP
+automatycznie. Bez reguły plik pozostaje bez zmian, ale GOLDEN i liczniki są kontrolowane.
 
 Wykonaj na docelowym serwerze wyłącznie dla wskazanego katalogu:
 
