@@ -4,6 +4,7 @@ import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { Modal } from '../components/common/Modal';
 import { ErrorBanner } from '../components/common/ErrorBanner';
+import { EmailCombobox } from '../components/common/EmailCombobox';
 import { getLocalizedErrorMessage } from '../lib/errors';
 import { useEngineerActions, useEngineersQuery, useMailsQuery } from '../hooks/useEngineers';
 import {
@@ -402,25 +403,14 @@ export const EngineersView: React.FC = () => {
                         }}
                         className="space-y-4"
                     >
-                        <div className="space-y-1.5">
-                            <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                {t.emailAddressLabel}
-                            </label>
-                            <input
-                                type="email"
-                                required
-                                placeholder={t.processMailExample}
-                                value={editProcessMailValue}
-                                onChange={(e) => setEditProcessMailValue(e.target.value)}
-                                list="allSuggestions"
-                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
-                            />
-                            <datalist id="allSuggestions">
-                                {emailSuggestions.map(m => (
-                                    <option key={m} value={m} />
-                                ))}
-                            </datalist>
-                        </div>
+                        <EmailCombobox
+                            options={emailSuggestions}
+                            label={t.emailAddressLabel}
+                            required
+                            placeholder={t.processMailExample}
+                            value={editProcessMailValue}
+                            onChange={setEditProcessMailValue}
+                        />
 
                         <div className="flex justify-end gap-3 pt-2">
                             <button
@@ -471,24 +461,13 @@ export const EngineersView: React.FC = () => {
                         />
                     </div>
 
-                    <div className="space-y-1.5">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                            {t.emailAddressLabel}
-                        </label>
-                        <input
-                            type="email"
-                            placeholder={t.emailAddressPlaceholder}
-                            value={newProcessMail}
-                            onChange={(e) => setNewProcessMail(e.target.value)}
-                            list="allSuggestions2"
-                            className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
-                        />
-                        <datalist id="allSuggestions2">
-                            {emailSuggestions.map(m => (
-                                <option key={m} value={m} />
-                            ))}
-                        </datalist>
-                    </div>
+                    <EmailCombobox
+                        options={emailSuggestions}
+                        label={t.emailAddressLabel}
+                        placeholder={t.emailAddressPlaceholder}
+                        value={newProcessMail}
+                        onChange={setNewProcessMail}
+                    />
 
                     <div className="flex justify-end gap-3 pt-2">
                         <button
