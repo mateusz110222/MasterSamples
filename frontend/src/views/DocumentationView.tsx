@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ArrowDown, ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, Code2, FileText, Info, List, Search, ShieldCheck, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, BookOpen, ChevronDown, Code2, Info, List, Search, ShieldCheck, X } from 'lucide-react';
 import { useLanguage } from '../i18n/useLanguage';
 import { useAuth } from '../auth/useAuth';
 import { getDocumentation, searchDocumentation } from '../documentation/content';
@@ -9,10 +9,9 @@ import '../documentation/documentation.css';
 
 const labels = {
     PL: {
-        eyebrow: 'MASTER SAMPLES / BAZA WIEDZY', title: 'Wszystko, czego potrzebujesz.\nW jednym miejscu.',
-        intro: 'Od pierwszego mastera po integrację stacji. Poznaj zasady, znajdź instrukcję i pracuj z pełnym obrazem systemu.',
+        title: 'Dokumentacja',
         search: 'Szukaj instrukcji, operacji, endpointu…', clear: 'Wyczyść wyszukiwanie', contents: 'W tym przewodniku',
-        guide: 'Przewodnik użytkownika', technical: 'Dla zespołu IT', chapters: 'rozdziałów', languages: 'Dwa języki',
+        guide: 'Przewodnik użytkownika', technical: 'Dla zespołu IT',
         start: 'Zacznij tutaj', startSub: 'Dostęp, role i pierwsze kroki', locks: 'Zrozum blokady', locksSub: 'Master, maszyna i reguły stacji',
         integration: 'Poznaj integrację', integrationSub: 'FIS, API i przepływ danych', results: 'Wyniki wyszukiwania',
         empty: 'Nie znaleziono rozdziału', emptySub: 'Spróbuj krótszej frazy, np. „reset”, „FIS” albo „BREQ”.',
@@ -20,10 +19,9 @@ const labels = {
         reference: 'Dokumentacja aplikacji', chapter: 'Rozdział', resultCount: 'Znalezione rozdziały:',
     },
     EN: {
-        eyebrow: 'MASTER SAMPLES / KNOWLEDGE BASE', title: 'Everything you need.\nAll in one place.',
-        intro: 'From your first master to station integration. Understand the rules, find a guide and see how the system fits together.',
+        title: 'Documentation',
         search: 'Search guides, operations, endpoints…', clear: 'Clear search', contents: 'In this guide',
-        guide: 'User guide', technical: 'For the IT team', chapters: 'chapters', languages: 'Two languages',
+        guide: 'User guide', technical: 'For the IT team',
         start: 'Start here', startSub: 'Access, roles and first steps', locks: 'Understand locks', locksSub: 'Masters, machines and station rules',
         integration: 'Explore integration', integrationSub: 'FIS, APIs and data flow', results: 'Search results',
         empty: 'No chapter found', emptySub: 'Try a shorter phrase, such as “reset”, “FIS” or “BREQ”.',
@@ -90,15 +88,8 @@ export function DocumentationView() {
     ];
 
     return <div className="documentation" lang={language.toLowerCase()}>
-        <section className="doc-hero" aria-labelledby="documentation-title">
-            <div className="doc-hero-grid" aria-hidden="true" />
-            <div className="doc-hero-copy">
-                <p className="doc-eyebrow"><span />{ui.eyebrow}</p>
-                <h2 id="documentation-title">{ui.title.split('\n').map((line, i) => <span key={line} className={i === 1 ? 'doc-title-muted' : ''}>{line}</span>)}</h2>
-                <p className="doc-hero-description">{ui.intro}</p>
-                <div className="doc-meta"><span><FileText size={14} aria-hidden="true" />{sections.length} {ui.chapters}</span><span><Check size={14} aria-hidden="true" />PL / EN · {ui.languages}</span></div>
-            </div>
-            <div className="doc-hero-emblem" aria-hidden="true"><div className="doc-emblem-orbit" /><BookOpen size={64} strokeWidth={1} /><span>MS / DOCS</span></div>
+        <section className="doc-toolbar" aria-labelledby="documentation-title">
+            <h2 id="documentation-title"><BookOpen size={19} aria-hidden="true" />{ui.title}</h2>
             <div className="doc-search-wrap"><Search size={20} aria-hidden="true" /><label className="sr-only" htmlFor="documentation-search">{ui.search}</label><input ref={searchRef} id="documentation-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={ui.search} autoComplete="off" />{query && <button type="button" aria-label={ui.clear} onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={18} /></button>}</div>
         </section>
 
