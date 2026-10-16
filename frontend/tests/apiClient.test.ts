@@ -104,6 +104,14 @@ test('station blocking records are scoped to FIS and enabled by presence', async
         await stationBlockingApi.remove('FTS', 'FIS2', 'prefix');
         assert.equal(requests[4].url.searchParams.get('job'), 'DeleteStationBlockingRule');
         assert.deepEqual(requests[4].body, { station: 'FTS', fis: 'FIS2', mode: 'prefix' });
+        await stationBlockingApi.set('ALL', 'FIS2', 'fis', true);
+        assert.equal(requests[5].url.hostname, 'plblofis2.global.borgwarner.net');
+        assert.deepEqual(requests[5].body, { station: 'ALL', fis: 'FIS2', mode: 'fis', disabled: true });
+        await stationBlockingApi.set('ALL', 'FIS1', 'fis', false);
+        assert.deepEqual(requests[6].body, { station: 'ALL', fis: 'FIS1', mode: 'fis', disabled: false });
+        await stationBlockingApi.remove('ALL', 'FIS1', 'fis');
+        assert.equal(requests[7].url.searchParams.get('job'), 'DeleteStationBlockingRule');
+        assert.deepEqual(requests[7].body, { station: 'ALL', fis: 'FIS1', mode: 'fis' });
     } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow; }
 });
 
@@ -285,7 +293,10 @@ test('FIS operations target the selected host and include the FIS value', async 
             requestedUrl,
             'http://plblofis2.global.borgwarner.net/custom/matz/php/MasterDashboard.php?job=CreateMaster',
         );
-        assert.equal(JSON.parse(requestedBody).fis, 'FIS2');
+        assert.deepEqual(JSON.parse(requestedBody), {
+            unit: 'TEST-001', process: 'AOI', status: 'GOOD',
+            maxCounter: 1000, maxErrors: 50, fis: 'FIS2',
+        });
 
         await masterApi.deleteMaster('TEST-001', 'FIS2');
         assert.equal(

@@ -48,9 +48,11 @@ W każdej odrębnej bazie używanej przez PHP i Tcl wykonaj po kolei:
 Jeżeli oba FIS współdzielą bazę, nie powtarzaj jej tworzenia. Jeżeli aktualne
 tabele podstawowe już istnieją, a brakuje tylko reguł, użyj 002 i 003.
 Ten zestaw nie importuje starych wyłączeń. Nie tworzy `stationBlockingExclusions`.
-Pusta tabela oznacza wyłączone blokowanie `_MASTER`; brak tabeli lub błąd SQL
-powoduje odmowę, nie wyłączenie kontroli. Obecność rekordu włącza blokowanie;
-kolumna `disabled` jest zachowana dla obecnego PHP i zawsze zapisywana jako 0.
+Pusta tabela oznacza wyłączone blokowanie `_MASTER`. Gdy reguły są potrzebne,
+brak tabeli lub błąd SQL powoduje odmowę. Każdy tryb respektuje `disabled`:
+0 włącza blokowanie, 1 je wyłącza. Pierwszeństwo ma reguła FIS, następnie
+pojedyncza stacja, następnie najdłuższy pasujący prefiks. Dashboard zapisuje
+reguły stacji/prefiksu z `disabled = 0`.
 
 ## BREQ w istniejącym handlerze GOLDEN
 
@@ -88,9 +90,14 @@ if { ![MasterCheck::BREQ $value(id) $param(process) $param(station)] } {
 ```
 
 Kod handlera EI nie jest częścią repozytorium — zmień go na stacji podczas
-wdrożenia. BREQ dla zwykłego SN odczytuje konfigurację i plik blokady, nie
-wymaga mastera i nie nalicza testu. Dla GOLDEN kontroluje master/panel,
-aktywność, proces i limity. BCMP nadal pozostaje w ścieżce wyników masterów.
+wdrożenia. BREQ/BCMP dla zwykłego SN na niezablokowanej stacji sprawdza plik
+blokady i kończy się bez połączenia z MySQL. Przy istniejącej blokadzie czyta
+aktualne reguły, nie wymaga mastera i nie nalicza testu. Dla GOLDEN kontroluje master/panel,
+aktywność, proces i limity. BCMP rozpoznaje również zwykłe SN: respektuje blokadę stacji, ale nie nalicza
+liczników mastera. Brak jednostki w FIS i archiwum jest dozwolony: sztuka może zostać utworzona
+dopiero przez stację po kontroli. Traktujemy ją jak zwykłą produkcję i
+respektujemy istniejącą blokadę. Błąd odczytu FIS kończy kontrolę odmową,
+ale nie tworzy blokady. Brak lub puste `uk3` oznacza zwykłą produkcję.
 
 Widok **Blokowanie stacji** zapisuje reguły `single` lub `prefix` osobno dla
 FIS1/FIS2. Dopasowanie prefiksu jest literalne i rozróżnia wielkość liter.
@@ -101,9 +108,16 @@ Po ponownym włączeniu istniejący plik znów obowiązuje.
 
 API: `GetStationBlockingRules` z `fis`; POST `SetStationBlocking` i
 `DeleteStationBlockingRule` z `{fis, mode, station}`. `mode`: `single` lub
-`prefix`. Zapis włącza blokowanie; nie używaj `disabled` jako przełącznika.
+`prefix`. Zapis reguły stacji lub prefiksu włącza blokowanie.
 Zapisy i usunięcia są audytowane. Nie ma cache konfiguracji: kolejne
-BREQ/BCMP odczytuje aktualne reguły.
+BREQ/BCMP odczytuje aktualne reguły dla GOLDEN lub istniejącego pliku blokady.
+
+Nadrzędne ustawienie dla całego FIS: `mode: "fis"`, `station: "ALL"`.
+Zapis z `disabled: false` wymusza blokowanie wszystkich obecnych i przyszłych
+stacji; `disabled: true` je wyłącza. Wymuszenie ma pierwszeństwo przed
+regułami stacji i prefiksów. Usunięcie reguły `fis` przywraca zapisane
+reguły bez ich modyfikowania i bez usuwania plików blokad. Wdroż PHP i TCL
+razem z frontendem; istniejąca tabela nie wymaga nowej migracji.
 
 Na hostach innych niż `plblofis1` / `plblofis2` ustaw przed pierwszym wywołaniem:
 
@@ -117,12 +131,16 @@ zwykły SN, GOOD/BAD, oba wyniki, limity, prefix, usunięcie reguły i audyt.
 Ręczne `LockStationMaster` / `UnlockStationMaster` oraz odblokowanie z dashboardu
 są operacjami administracyjnymi niezależnymi od konfiguracji reguł.
 
-Moduł sam ładuje `/fis/mantis/common/config/system/system.cfg`, ustawia
-globalne `param(dbName)` na `masterSample`, następnie ładuje
-`config.cfg` z katalogu `$_sysvarc(FISVW_DB)`. Parametry `host`, `user`,
+Wariant 8.5 ładuje `/fis/mantis/common/config/system/system.cfg`; wariant 8.6
+korzysta z konfiguracji systemowej załadowanej przez hosta. Oba ładują
+`config.cfg` z katalogu `$::_sysvarc(FISVW_DB)` w globalnym zakresie.
+Przed załadowaniem konfiguracji moduł ustawia globalne `param(dbName)` na
+`masterSample`, jak w poprzedniej wersji. `_Connect` korzysta z globalnego
+`param(dbName)`. Parametry `host`, `user`,
 `password` i `port` pochodzą z tej konfiguracji, tak jak w poprzedniej wersji.
-Błąd ładowania `config.cfg` jest zapisywany w `error` i logowany przez
-`Lib::ShowError`; pakiet nie zostaje wtedy zadeklarowany jako załadowany.
+Błąd ładowania konfiguracji jest zapisywany w `::MasterCheck::error` i `::error`,
+logowany przez `Lib::ShowError` i zgłaszany jako wyjątek Tcl; pakiet nie zostaje
+wtedy zadeklarowany jako załadowany.
 Katalog blokad to `/fis/mantis/data/blocked_machines`, grupa to `fis`.
 
 `BREQ unit process station` i `BCMP unit process station status` zwracają `1`/`0`.
@@ -139,8 +157,8 @@ Wynik niezgodny nalicza `errorCounter` i `globalCounter`, blokuje stację i zwra
 Publiczne `LockStationMaster station` i `UnlockStationMaster station` zachowują
 argumenty i wynik `1`/`0`. Obsługują wyłącznie pliki i nie łączą się z MySQL.
 `UnlockStationMaster` jest operacją administracyjną; normalna ścieżka wyników
-powinna korzystać z `BCMP`. Stary ogólny `SafeUpdate` zastąpiono wewnętrznym
-ponawianiem całej transakcji i nie należy już go wywoływać spoza modułu.
+powinna korzystać z `BCMP`. `SafeUpdate db sql` pozostaje dostępne dla zewnętrznych wywołań.
+Zapis wyniku mastera korzysta z `_Record`, które ponawia całą transakcję.
 
 ## Blokady i uprawnienia
 
@@ -186,7 +204,8 @@ Stacja wykonuje wywołania modułu kolejno; nie ma blokady MySQL per stacja.
 Transakcja z `FOR UPDATE` chroni liczniki mastera używanego przez różne stacje.
 Ręczne usunięcie pliku przez dashboard pozostaje osobną decyzją administratora.
 
-Przy braku połączenia SQL moduł zwraca `0` i nie usuwa pliku. Wywołujący
+Przy awarii wymaganego połączenia SQL moduł zwraca `0` i nie usuwa pliku.
+Zwykła produkcja bez pliku blokady nie wymaga połączenia SQL. Wywołujący
 musi zatrzymać test przy każdym `0`; nie wolno traktować samego braku pliku jako
 potwierdzenia poprawnego mastera. Błąd fizycznego blokowania jest jawnie logowany.
 
@@ -198,7 +217,8 @@ jest ustawiany dla połączenia na 5 s. Niepewny wynik `COMMIT` nie jest ponawia
 Brak deduplikacji wyników: ponowne wywołanie `BCMP` dla tego samego testu może
 naliczyć go ponownie, także po zapisanym wyniku i późniejszej awarii odblokowania.
 
-Próg maila wynosi `max(1, maxCounter-50)`. Wiadomość wysyłana jest po zatwierdzonym
+Offset maila wynosi `min(50, max(1, int(maxCounter * 0.2)))`, a próg
+`max(1, maxCounter - offset)`, np. 16/20 lub 950/1000. Wiadomość wysyłana jest po zatwierdzonym
 przejściu przez próg, z wartości policzonych pod blokadą rekordu. Jest jedna próba,
 bez kolejki i bez gwarancji dostarczenia przy awarii procesu. Po ręcznym resecie
 licznika ponowne przekroczenie progu oznacza nowe powiadomienie. Błąd wysyłki lub
@@ -213,7 +233,7 @@ Wariant 8.5.7:
 tclsh8.5 tests/MasterCheck85.test.tcl
 ```
 
-Lokalnie wariant przeszedł 56 testów na Tcl 8.6 z wyłączonym poleceniem `try`.
+Lokalnie wariant przeszedł 107 testów na Tcl 8.6 z wyłączonym poleceniem `try`.
 Nie został jeszcze uruchomiony na rzeczywistym Tcl 8.5.7; sprawdź go na docelowym
 interpreterze razem z zainstalowanymi bibliotekami mysqltcl i FIS.
 
@@ -251,3 +271,9 @@ i BAD, panel, archiwum, blokadę z dashboardu oraz usuwanie pliku przez faktyczn
 konto web-serwera PHP. Zweryfikuj licznik i log po obu wynikach oraz mail na
 progu. Dopiero potem rozszerz wdrożenie na pozostałe stacje; nie mieszaj starej
 i nowej wersji na jednej stacji. Przy wycofaniu przywróć poprzedni moduł.
+
+Po zatwierdzonym wyniku awaria odblokowania zwraca 0 bez ponownej próby
+blokowania; nie ponawiaj automatycznie BCMP. Awaria utworzenia blokady przy
+niezgodnym wyniku zachowuje pierwotny komunikat i wykonuje jedną próbę.
+Jeśli inicjalizacja nowego pliku blokady nie powiedzie się, deskryptor jest
+zamykany i wykonywana jest próba usunięcia utworzonego pliku.

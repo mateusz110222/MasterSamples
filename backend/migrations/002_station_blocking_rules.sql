@@ -12,7 +12,3 @@ CREATE TABLE stationBlockingRules (
     `date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (FIS, mode, station)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Rule presence enables _MASTER blocking. An empty table disables it everywhere.
--- disabled is retained because current PHP selects/writes it, always as 0.
--- Configure real single/prefix rules through the dashboard after verification.

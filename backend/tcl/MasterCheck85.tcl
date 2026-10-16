@@ -7,31 +7,21 @@ package require Tcl 8.5.7
 
 namespace eval ::MasterCheck {
     namespace upvar :: param param
-
-    # --------------------------------------------------------------------------
-    # Inicjalizacja i Konfiguracja
-    # --------------------------------------------------------------------------
-    source [file join /fis mantis common config system system.cfg]
-
-    upvar error error
-    set error ""
+    variable error ""
     set param(dbName) "masterSample"
-
-    if {[catch {
-        set configFile [file join $_sysvarc(FISVW_DB) config.cfg]
-        source $configFile
-    } err]} {
+    set initCode [catch {
+        uplevel #0 [list source [file join /fis mantis common config system system.cfg]]
+        uplevel #0 [list source [file join $::_sysvarc(FISVW_DB) config.cfg]]
+    } err]
+    if {$initCode} {
         set error "MasterCheck INIT ERROR: Failed to load config.cfg. Reason: $err"
+        set ::error $error
         ::Lib::ShowError $error
-        return 0
+        error $error
     }
 
     variable blockedDir   /fis/mantis/data/blocked_machines
     variable blockedGroup fis
-
-    # --------------------------------------------------------------------------
-    # Zarządzanie Blokadami Stacji (Lock Files)
-    # --------------------------------------------------------------------------
 
     proc _StationPath {station} {
         variable blockedDir
@@ -85,9 +75,11 @@ namespace eval ::MasterCheck {
             } attributeError attributeOptions]
             set closeCode [catch {close $fd} closeError closeOptions]
             if {$attributeCode != 0} {
+                catch {file delete $path}
                 return -options $attributeOptions $attributeError
             }
             if {$closeCode != 0} {
+                catch {file delete $path}
                 return -options $closeOptions $closeError
             }
             return 1
@@ -165,15 +157,24 @@ namespace eval ::MasterCheck {
         return $db
     }
 
-    proc _EnsureFisUnit {unit} {
+    proc _EnsureFisUnit {unit {allowMissing 0}} {
         if {![::Unit::Find $unit]} {
-            if {![::Archive::GetAll $unit] || ![::Archive::Unarchive $unit]} {
+            if {![::Archive::GetAll $unit]} {
+                if {$allowMissing} {
+                    ::Lib::ShowDebug "MasterCheck: unit='$unit' absent from FIS and archive; treating as production"
+                    return 0
+                }
                 error "Cannot find or unarchive unit '$unit'"
+            }
+            if {![::Archive::Unarchive $unit]} {
+                error "Cannot unarchive unit '$unit'"
             }
             if {![::Unit::Find $unit]} {
                 error "Unit '$unit' is still unavailable after unarchive"
             }
+            ::Lib::ShowDebug "MasterCheck: unit='$unit' restored from archive"
         }
+        return 1
     }
 
     proc _Candidates {unit process} {
@@ -323,9 +324,14 @@ namespace eval ::MasterCheck {
                 _Exec $db {START TRANSACTION}
                 set inTransaction 1
 
-                set rows [_Rows $db "unit = [_Quote $db $unit]" 1]
+                set rows {}
+                foreach row [_Rows $db "unit = [_Quote $db $unit]" 1] {
+                    if {[_MatchesProcess [dict get $row process] $process]} {
+                        lappend rows $row
+                    }
+                }
                 if {[llength $rows] != 1} {
-                    error "Master disappeared before result recording"
+                    error "Expected one master for result recording; found [llength $rows]"
                 }
 
                 array set record [lindex $rows 0]
@@ -370,7 +376,8 @@ namespace eval ::MasterCheck {
                 set inTransaction 0
 
                 set before    $record(currentCounter)
-                set threshold [expr {max(1, $record(maxCounter) - 50)}]
+                set warnOffset [expr {min(50, max(1, int($record(maxCounter) * 0.2)))}]
+                set threshold [expr {max(1, $record(maxCounter) - $warnOffset)}]
                 set after     [expr {$before + $matched}]
                 set notify    [expr {$matched && $before < $threshold && $after >= $threshold}]
 
@@ -404,7 +411,7 @@ namespace eval ::MasterCheck {
             }]
 
             if {$isLockConflict} {
-                ::Lib::ShowDebug "Retrying master transaction after DB lock conflict"
+                ::Lib::ShowDebug "Retrying master transaction: unit='$unit', process='$process', mysqlCode=[lindex $code 2], nextAttempt=[expr {$attempt + 2}]/3"
                 after [expr {100 * ($attempt + 1)}]
                 continue
             }
@@ -444,10 +451,6 @@ namespace eval ::MasterCheck {
         }
     }
 
-    # --------------------------------------------------------------------------
-    # Główny Silnik Wykonawczy (Core Engine)
-    # --------------------------------------------------------------------------
-
     proc _CheckStationName {station} {
         if {[string length $station] > 100 || ![regexp {^[A-Za-z0-9][A-Za-z0-9_.-]*$} $station]} {
             error "Invalid station name"
@@ -467,16 +470,22 @@ namespace eval ::MasterCheck {
         if {$fis ni {FIS1 FIS2}} {
             error "Invalid param(masterCheckFis): expected FIS1 or FIS2"
         }
-        # Indexed literal prefix candidates; underscore is never a SQL wildcard.
         set prefixes {}
         for {set length 1} {$length <= [string length $station]} {incr length} {
             lappend prefixes [_Quote $db [string range $station 0 [expr {$length - 1}]]]
         }
         set rows [_Select $db "SELECT mode, station, disabled FROM stationBlockingRules
             WHERE FIS = [_Quote $db $fis] AND
-                ((mode = 'single' AND station = [_Quote $db $station]) OR
+                ((mode = 'fis' AND station = 'ALL') OR
+                 (mode = 'single' AND station = [_Quote $db $station]) OR
                  (mode = 'prefix' AND station IN ([join $prefixes ,])))"]
-        return [_RuleEnabled $rows $station]
+        set enabled [_RuleEnabled $rows $station]
+        set source "no matching rule"
+        if {$enabled} { set source "station/prefix rule" }
+        foreach row $rows {
+            if {[lindex $row 0] eq "fis"} { set source "FIS override"; break }
+        }
+        return $enabled
     }
 
     proc _RuleEnabled {rows station} {
@@ -486,14 +495,17 @@ namespace eval ::MasterCheck {
         foreach row $rows {
             if {[llength $row] != 3} { error "Invalid station blocking rule" }
             lassign $row mode selector disabled
-            if {$mode ni {single prefix} || $disabled ni {0 1} ||
+            if {$mode ni {single prefix fis} || $disabled ni {0 1} ||
                 ![regexp {^[A-Za-z0-9][A-Za-z0-9_.-]*$} $selector] || [string length $selector] > 100} {
                 error "Invalid station blocking rule"
             }
             set identity [list $mode $selector]
             if {$identity in $seen} { error "Duplicate station blocking rule" }
             lappend seen $identity
-            if {$mode eq "single"} {
+            if {$mode eq "fis"} {
+                if {$selector ne "ALL"} { error "Invalid FIS blocking override" }
+                set priority 102
+            } elseif {$mode eq "single"} {
                 if {$selector ne $station} { continue }
                 set priority 101
             } else {
@@ -502,7 +514,7 @@ namespace eval ::MasterCheck {
             }
             if {$priority > $selected} {
                 set selected $priority
-                set enabled 1
+                set enabled [expr {!$disabled}]
             }
         }
         return $enabled
@@ -514,28 +526,36 @@ namespace eval ::MasterCheck {
         set error ""
         set db ""
         set blockingEnabled 0
+        set isMaster 0
 
         set code [catch {
             _CheckStationName $station
+            set process [string trim $process]
+
+            if {[_EnsureFisUnit $unit 1]} {
+                if {![::Unit::GetStatus $unit]} {
+                    error "Cannot get unit status for '$unit'"
+                }
+                set uk3 [expr {[info exists ::Unit::uk3] ? [string trim $::Unit::uk3] : ""}]
+                set isMaster [expr {$uk3 eq "GOLDEN"}]
+            }
+
+            # Ordinary production on an unlocked station needs no MySQL access.
+            if {!$isMaster && ![_ExistingLock [_StationPath $station]]} {
+                return 1
+            }
             set db [_Connect]
             set blockingEnabled [_BlockingEnabled $db $station]
             if {$blockingEnabled} { _StationPath $station }
-            set process [string trim $process]
 
-            # BREQ now handles every board, including ordinary production SNs.
-            if {$operation eq "BREQ"} {
-                _EnsureFisUnit $unit
-                if {![::Unit::GetStatus $unit] || ![info exists ::Unit::uk3]} {
-                    error "Cannot get unit status for '$unit'"
+            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status'"
+
+            if {!$isMaster} {
+                if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
+                    set error "Station blocked, master check required"
+                    return 0
                 }
-                if {$::Unit::uk3 ne "GOLDEN"} {
-                    if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
-                        set error "Station blocked, master check required"
-                        ::Lib::ShowError $error
-                        return 0
-                    }
-                    return 1
-                }
+                return 1
             }
 
             if {$operation eq "BCMP"} {
@@ -563,35 +583,38 @@ namespace eval ::MasterCheck {
             _Notify $db $process result
 
             if {!$result(matched)} {
-                if {$blockingEnabled && ![LockStationMaster $station]} {
-                    error $error
+                set message "Wrong status ($status != $result(expected))"
+                if {$blockingEnabled} {
+                    if {[LockStationMaster $station]} {
+                        append message "; station '$station' blocked"
+                    } else {
+                        append message "; station block failed: $error"
+                    }
                 }
-                set error "Wrong status ($status != $result(expected))"
-                if {$blockingEnabled} { append error "; station '$station' blocked" }
-                ::Lib::ShowError $error
+                set error $message
                 return 0
             }
 
             if {$blockingEnabled && ![UnlockStationMaster $station]} {
-                error $error
+                ::Lib::ShowError "Master result committed; $error (do not automatically repeat BCMP)"
+                return 0
             }
 
-            if {$blockingEnabled} { ::Lib::ShowDebug "Unlocked station: $station after succesful master check" }
             return 1
 
         } message options]
 
         if {$code == 1} {
             if {!$blockingEnabled} { set message [string map {". Station blocked." "."} $message] }
-            if {$db ne "" && $blockingEnabled && ![LockStationMaster $station]} {
+            if {$isMaster && $db ne "" && $blockingEnabled && ![LockStationMaster $station]} {
                 append message "; station block failed: $error"
             }
             set error "MasterCheck $operation failed: $message"
-            ::Lib::ShowError $error
+            ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
             set message 0
         }
 
-        # Close the connection for success, denial and every caught error.
+
         if {$db ne "" && [catch {::mysql::close $db} closeError]} {
             ::Lib::ShowError "DB close failed: $closeError"
         }
@@ -603,7 +626,6 @@ namespace eval ::MasterCheck {
     }
 
     proc BREQ {unit process station} {
-        ::Lib::ShowDebug "--- Checking master in BREQ ---"
         set result [_Run BREQ $unit $process $station]
         variable error
         upvar 1 error callerError
@@ -612,14 +634,12 @@ namespace eval ::MasterCheck {
     }
 
     proc BCMP {unit process station status} {
-        ::Lib::ShowDebug "--- Checking master in BCMP ---"
         set result [_Run BCMP $unit $process $station $status]
         variable error
         upvar 1 error callerError
         set callerError $error
         return $result
     }
-
     proc SafeUpdate {db sql} {
         set retries 3
 

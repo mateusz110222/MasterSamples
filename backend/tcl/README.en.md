@@ -48,9 +48,11 @@ Run in this order on every distinct database used by PHP and Tcl:
 Do not repeat database creation when both FIS servers share it. If the current
 core tables already exist and only rules are missing, use 002 and 003.
 This set imports no old exclusions and creates no `stationBlockingExclusions`.
-An empty table disables `_MASTER` blocking; a missing table or SQL error causes
-rejection, not disabled checks. A record’s presence enables blocking; `disabled`
-is retained for the current PHP code and always written as 0.
+An empty table disables `_MASTER` blocking. When rules are needed, a missing
+table or SQL error rejects the check. Every mode respects `disabled`: 0 enables
+blocking, 1 disables it. The FIS override takes priority, followed by a single
+station and then the longest matching prefix. Dashboard station/prefix saves
+write `disabled = 0`.
 
 ## BREQ in the existing GOLDEN handler
 
@@ -88,9 +90,14 @@ if { ![MasterCheck::BREQ $value(id) $param(process) $param(station)] } {
 ```
 
 The EI handler code is outside the repository — change it on the station during
-deployment. For a regular SN, BREQ reads configuration and the lock file, without
-requiring a master or counting a test. For GOLDEN, it checks the master/panel,
-activity, process and limits. BCMP remains in the master result path.
+deployment. For a regular SN on an unlocked station, BREQ/BCMP checks the lock
+file and returns without connecting to MySQL. With an existing lock it reads
+the current rules, without requiring a master or counting a test. For GOLDEN, it checks the master/panel,
+activity, process and limits. BCMP also recognizes production SNs and respects station locks without
+updating master counters. Units absent from both FIS and the archive are treated as production and
+respect existing locks; the station may create them after the check. Failed
+FIS lookups deny the check without creating a lock. Missing or empty `uk3`
+classifies the unit as production.
 
 The **Station blocking** view stores `single` or `prefix` rules separately for
 FIS1/FIS2. Prefix matching is literal and case-sensitive. An `APR` record also
@@ -101,9 +108,16 @@ existing file applies again.
 
 API: `GetStationBlockingRules` with `fis`; POST `SetStationBlocking` and
 `DeleteStationBlockingRule` with `{fis, mode, station}`. `mode` is `single` or
-`prefix`. Saving enables blocking; do not use `disabled` as a switch. Saves and
+`prefix`. Saving a station or prefix record enables blocking. Saves and
 deletions are audited. Configuration is not cached: subsequent BREQ/BCMP calls
-read the current rules.
+read the current rules when the unit is GOLDEN or a lock file exists.
+
+FIS-wide override: `mode: "fis"`, `station: "ALL"`. Saving with
+`disabled: false` forces blocking for all current and future stations;
+`disabled: true` forces it off. The override takes priority over station
+and prefix rules. Deleting the `fis` rule restores saved rules without
+changing them or deleting lock files. Deploy PHP and TCL with the frontend;
+the existing table requires no additional migration.
 
 On hosts other than `plblofis1` / `plblofis2`, set this before the first call:
 
@@ -117,11 +131,14 @@ station: a regular SN, GOOD/BAD, both outcomes, limits, prefix, rule deletion
 and audit. Manual `LockStationMaster` / `UnlockStationMaster` and dashboard
 unlocking are administrative operations independent of rule configuration.
 
-The module loads `/fis/mantis/common/config/system/system.cfg`, sets global
-`param(dbName)` to `masterSample`, then loads `config.cfg` from
-`$_sysvarc(FISVW_DB)`. `host`, `user`, `password` and `port` come from that
+The 8.5 variant loads `/fis/mantis/common/config/system/system.cfg`; the 8.6
+variant expects the host to have loaded it. Both source `config.cfg` from
+`$::_sysvarc(FISVW_DB)` in global scope. Before loading configuration, the module
+sets global `param(dbName)` to `masterSample`, as in the previous version.
+`_Connect` uses global `param(dbName)`. `host`, `user`, `password` and `port` come from that
 configuration, as in the previous version. A `config.cfg` loading error is
-stored in `error` and logged through `Lib::ShowError`; the package is not
+stored in `::MasterCheck::error` and `::error`, logged through `Lib::ShowError`,
+and raised as a Tcl error; the package is not
 declared loaded in that case. The lock directory is
 `/fis/mantis/data/blocked_machines`; its group is `fis`.
 
@@ -139,8 +156,8 @@ station and returns `0`. Invalid data and reached limits do not count a test.
 Public `LockStationMaster station` and `UnlockStationMaster station` preserve
 their arguments and `1`/`0` results. They operate on files only and do not connect
 to MySQL. `UnlockStationMaster` is administrative; the normal result path should
-use BCMP. The old general `SafeUpdate` was replaced by internal whole-transaction
-retrying and must no longer be called from outside the module.
+use BCMP. `SafeUpdate db sql` remains available to external callers.
+Master result recording uses `_Record`, which retries the whole transaction.
 
 ## Locks and permissions
 
@@ -164,8 +181,9 @@ BREQ for a regular SN does not remove a lock. A valid GOLDEN unit may pass
 BREQ with an existing file so it can run an unlocking test. BREQ alone does
 not unlock. Limits are checked before counting: a matched test at 99/100 can
 save 100/100 and unlock; the next check rejects and attempts to lock the station.
-A file-removal failure after saving counters does not undo the test; do not
-automatically retry BCMP. Without a rule, the file remains unchanged, while
+A file-removal failure after saving counters returns 0 without attempting a
+new lock and does not undo the test; do not automatically retry BCMP. A failed
+lock after a mismatch keeps the wrong-status message and attempts locking once. Without a rule, the file remains unchanged, while
 GOLDEN validation and counters stay active.
 
 Run on the target server for this directory only:
@@ -177,7 +195,8 @@ chmod 2775 /fis/mantis/data/blocked_machines
 
 Do not use `-R`. Other files, including `UPS22_5156`, must remain unchanged.
 FIS and PHP processes must belong to `fis`; restart them after changing group
-membership. New locks use group `fis` and permissions `0664`. Existing regular
+membership. New locks use group `fis` and permissions `0664`. If initialization fails,
+the newly created lock is closed and deletion is attempted. Existing regular
 files retain their content, permissions and modification time. Symlinks and
 directories in place of files are rejected; files are removed without `-force`.
 The design assumes trusted, cooperating users of the shared group directory,
@@ -188,7 +207,8 @@ BREQ and BCMP use the public file locking/unlocking functions. The `FOR UPDATE`
 transaction protects counters when different stations use the same master.
 Manual file removal through the dashboard remains a separate administrative decision.
 
-Without an SQL connection, the module returns `0` and does not remove the file.
+If a required SQL connection fails, the module returns `0` and does not remove
+the file. Unlocked production requires no SQL connection.
 The caller must stop testing on every `0`; a missing file alone is not proof
 of a valid master. Physical locking failures are explicitly logged.
 
@@ -200,7 +220,8 @@ limited to 5 seconds per connection. An uncertain COMMIT result is not retried.
 Results are not deduplicated: calling BCMP again for the same test can count it
 again, including after a saved result followed by an unlocking failure.
 
-The email threshold is `max(1, maxCounter-50)`. Email is sent after the confirmed
+The email offset is `min(50, max(1, int(maxCounter * 0.2)))`; the threshold is
+`max(1, maxCounter - offset)`, e.g. 16/20 or 950/1000. Email is sent after the confirmed
 threshold crossing, using values calculated while holding the row lock.
 There is one attempt, no queue and no delivery guarantee if the process fails.
 After a manual counter reset, another threshold crossing produces another
@@ -216,7 +237,8 @@ The 8.5.7 variant:
 tclsh8.5 tests/MasterCheck85.test.tcl
 ```
 
-Locally, the variant passed 56 tests on Tcl 8.6 with `try` disabled. It has not
+Locally, both variants passed 107 tests on Tcl 8.6; the 8.5 variant ran with
+`try` disabled. It has not
 yet been run on actual Tcl 8.5.7; verify it on the target interpreter with the
 installed mysqltcl and FIS libraries.
 

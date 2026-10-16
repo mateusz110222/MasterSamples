@@ -1,432 +1,34 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
-import { fisApi } from '../api/fisApi';
-import { masterApi, CreateMasterPayload, FisTarget, normalizeFisTarget } from '../api/masterApi';
-import type { MasterUnit } from '../types';
-import { useLanguage } from '../i18n/useLanguage';
-import type { TranslationsType } from '../i18n/LanguageContext';
+import { PnCombobox } from '../components/common/PnCombobox';
+import React from 'react';
 import { Modal } from '../components/common/Modal';
 import { TagCombobox as ProcessCombobox } from '../components/common/TagCombobox';
-import { useExitPresence } from '../hooks/useExitPresence';
-import { getErrorMessage } from '../lib/errors';
-import { ApiError } from '../api/client';
 import { ErrorBanner } from '../components/common/ErrorBanner';
-import { refreshMasterData } from '../lib/queryCache';
-
-import {
-    PlusCircle,
-    ArrowLeft,
-    CheckCircle2,
-    AlertCircle,
-    Check,
-    RefreshCw,
-    X,
-    Search,
-    ChevronDown,
-    Tag,
-} from 'lucide-react';
-
-const formatMessage = (template: string, values: Record<string, string | number>) =>
-    template.replace(/\{(\w+)\}/g, (match, key: string) => String(values[key] ?? match));
-
-type Feedback = {
-    type: 'success' | 'error';
-    key: keyof TranslationsType;
-    values?: Record<string, string | number>;
-    serverMessage?: string;
-    statusCode?: number;
-};
-
-const PnCombobox = ({
-    options,
-    value,
-    onChange,
-    label,
-    placeholder,
-    isLoading,
-    hasError,
-    invalid,
-}: {
-    options: string[];
-    value: string;
-    onChange: (value: string) => void;
-    label: string;
-    placeholder: string;
-    isLoading: boolean;
-    hasError: boolean;
-    invalid: boolean;
-}) => {
-    const { t } = useLanguage();
-    const inputId = useId();
-    const listId = useId();
-    const containerRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
-    const [isOpen, setIsOpen] = useState(false);
-    const listMounted = useExitPresence(isOpen, 120);
-    const [query, setQuery] = useState('');
-    const [activeIndex, setActiveIndex] = useState(-1);
-
-    const filtered = useMemo(() => {
-        const search = query.trim().toLocaleLowerCase();
-        return search
-            ? options.filter(option => option.toLocaleLowerCase().includes(search))
-            : options;
-    }, [options, query]);
-    const visibleOptions = filtered.slice(0, 150);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        const closeOnOutsideClick = (event: PointerEvent) => {
-            if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
-        };
-        document.addEventListener('pointerdown', closeOnOutsideClick);
-        return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
-    }, [isOpen]);
-
-    useEffect(() => {
-        if (isOpen && activeIndex >= 0) {
-            document.getElementById(`${listId}-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
-        }
-    }, [activeIndex, isOpen, listId]);
-
-    const choose = (key: string) => {
-        onChange(key);
-        setQuery(key);
-        setIsOpen(false);
-        setActiveIndex(-1);
-    };
-
-    const handleClear = (event: React.MouseEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onChange('');
-        setQuery('');
-        setIsOpen(false);
-        setActiveIndex(-1);
-        inputRef.current?.blur();
-    };
-
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            if (!isOpen) {
-                setIsOpen(true);
-                setQuery('');
-                setActiveIndex(event.key === 'ArrowDown' ? (options.length ? 0 : -1) : Math.min(options.length, 150) - 1);
-            } else if (visibleOptions.length > 0) {
-                setActiveIndex(index => event.key === 'ArrowDown'
-                    ? (index + 1) % visibleOptions.length
-                    : (index <= 0 ? visibleOptions.length - 1 : index - 1));
-            }
-        } else if (event.key === 'Enter' && isOpen) {
-            event.preventDefault();
-            // A highlighted suggestion wins; otherwise keep the number typed by the user.
-            choose(activeIndex >= 0 ? visibleOptions[activeIndex] : query.trim());
-        } else if (event.key === 'Escape' && isOpen) {
-            event.preventDefault();
-            setIsOpen(false);
-            setQuery(value);
-            setActiveIndex(-1);
-        }
-    };
-
-    return (
-        <div ref={containerRef} className={`relative ${listMounted ? 'z-30' : 'z-10'}`} onBlur={event => {
-            if (!event.currentTarget.contains(event.relatedTarget)) {
-                setIsOpen(false);
-                setQuery(value);
-            }
-        }}>
-            <label htmlFor={inputId} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-brand-text">
-                {label} <span className="text-rose-400">*</span>
-            </label>
-            <div className={`flex h-12 items-center rounded-xl border bg-brand-surface-high px-3 transition-colors ${invalid ? 'border-rose-400 ring-2 ring-rose-400/20' : isOpen ? 'border-brand-accent ring-2 ring-brand-accent/20' : 'border-brand-border hover:border-brand-text-muted/60'}`}>
-                <Search size={16} className="mr-2 shrink-0 text-brand-text-muted" aria-hidden="true" />
-                <input
-                    ref={inputRef}
-                    id={inputId}
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded={isOpen}
-                    aria-invalid={invalid}
-                    aria-controls={listId}
-                    aria-activedescendant={isOpen && activeIndex >= 0 && visibleOptions[activeIndex] ? `${listId}-option-${activeIndex}` : undefined}
-                    autoComplete="off"
-                    value={isOpen ? query : value}
-                    placeholder={placeholder}
-                    onFocus={() => { setIsOpen(true); setQuery(value); setActiveIndex(-1); }}
-                    onChange={event => {
-                        setQuery(event.target.value);
-                        onChange(event.target.value);
-                        setIsOpen(true);
-                        setActiveIndex(-1);
-                    }}
-                    onKeyDown={handleKeyDown}
-                    className="min-w-0 flex-1 bg-transparent font-mono text-sm text-brand-text placeholder-brand-text-muted outline-none disabled:opacity-60"
-                />
-                {(value || query) && (
-                    <button
-                        type="button"
-                        aria-label={t.pnClear}
-                        title={t.pnClear}
-                        onMouseDown={event => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                        }}
-                        onClick={handleClear}
-                        className="rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text cursor-pointer transition-colors"
-                    >
-                        <X size={16} />
-                    </button>
-                )}
-                <button
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={isOpen ? t.pnCloseList : t.pnOpenList}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => {
-                        if (isOpen) {
-                            setIsOpen(false);
-                        } else {
-                            inputRef.current?.focus();
-                            setQuery('');
-                            setIsOpen(true);
-                        }
-                        setActiveIndex(-1);
-                    }}
-                    className="ml-1 rounded-md p-1 text-brand-text-muted hover:bg-brand-border hover:text-brand-text"
-                >
-                    <ChevronDown size={17} className={isOpen ? 'rotate-180' : ''} />
-                </button>
-            </div>
-            {listMounted && (
-                <div id={listId} role="listbox" inert={!isOpen} aria-hidden={!isOpen} aria-label={t.pnList} className={`absolute z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-brand-border bg-brand-surface-high p-1.5 shadow-2xl shadow-black/60 ${isOpen ? 'animate-dropdown-in' : 'animate-dropdown-out'}`}>
-                    {filtered.length === 0 ? (
-                        <p className="px-3 py-3 text-sm text-brand-text-muted">
-                            {isLoading ? t.pnLoadingManual : hasError ? t.pnUnavailableManual : t.pnNoMatchesManual}
-                        </p>
-                    ) : (
-                        visibleOptions.map((pn, index) => (
-                            <div
-                                key={pn}
-                                id={`${listId}-option-${index}`}
-                                role="option"
-                                aria-selected={pn === value}
-                                onMouseDown={event => event.preventDefault()}
-                                onClick={() => choose(pn)}
-                                className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === activeIndex ? 'bg-brand-accent/30 text-white' : 'text-brand-text hover:bg-brand-accent/20'}`}
-                            >
-                                <span className="font-mono font-bold">{pn}</span>
-                            </div>
-                        ))
-                    )}
-                    {filtered.length > 150 && (
-                        <p className="px-3 py-2 text-xs text-brand-text-muted font-mono text-center border-t border-brand-border/40">
-                            {formatMessage(t.pnMoreResults, { count: filtered.length - 150 })}
-                        </p>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
+import { PlusCircle, ArrowLeft, CheckCircle2, AlertCircle, Check, RefreshCw, X, Search, Tag } from 'lucide-react';
+import { useCreateMaster } from '../hooks/useCreateMaster';
 
 export const CreateMasterView: React.FC = () => {
-    const navigate = useNavigate();
-    const { t, language } = useLanguage();
-    const queryClient = useQueryClient();
-    const localizedError = (error: unknown, fallback: string) => {
-        if (language === 'PL') return getErrorMessage(error, fallback);
-        if (error instanceof ApiError && error.statusCode > 0) {
-            return `${fallback} ${formatMessage(t.httpErrorCode, { code: error.statusCode })}`;
-        }
-        return fallback;
-    };
-
-    // Mode: 'single' | 'multiple'
-    const [mode, setMode] = useState<'single' | 'multiple'>('single');
-
-    // Form state
-    const [serialNumber, setSerialNumber] = useState('');
-    const [singleProcess, setSingleProcess] = useState('');
-    const [selectedProcesses, setSelectedProcesses] = useState<string[]>([]);
-    const [multiSearchQuery, setMultiSearchQuery] = useState('');
-    const [assignPn, setAssignPn] = useState(false);
-    const [selectedPn, setSelectedPn] = useState('');
-    const [pnRequiredError, setPnRequiredError] = useState(false);
-    const [status, setStatus] = useState<'GOOD' | 'BAD'>('GOOD');
-    const [maxCounter, setMaxCounter] = useState<number>(1000);
-    const [maxErrors, setMaxErrors] = useState<number>(50);
-    const [selectedFis, setSelectedFis] = useState<FisTarget>(() => {
-        try {
-            return window.localStorage.getItem('masterSamples.selectedFis') === 'FIS2' ? 'FIS2' : 'FIS1';
-        } catch {
-            return 'FIS1';
-        }
-    });
-
-    const handleFisChange = (fis: FisTarget) => {
-        if (fis === selectedFis) return;
-        setSelectedFis(fis);
-        setSingleProcess('');
-        setSelectedProcesses([]);
-        setMultiSearchQuery('');
-        try {
-            window.localStorage.setItem('masterSamples.selectedFis', fis);
-        } catch {
-            // Selection remains active for the current session when storage is unavailable.
-        }
-    };
-
-    // Existing unit update comparison modal
-    const [existingModalData, setExistingModalData] = useState<{
-        oldData: Partial<MasterUnit>;
-        newData: Partial<MasterUnit>;
-    } | null>(null);
-
-    // Feedback state
-    const [feedback, setFeedback] = useState<Feedback | null>(null);
-    const feedbackMessage = feedback && (language === 'PL' && feedback.serverMessage
-        ? feedback.serverMessage
-        : formatMessage(t[feedback.key], feedback.values ?? {}));
-    const feedbackStatus = feedback?.statusCode && language === 'EN'
-        ? ` ${formatMessage(t.httpErrorCode, { code: feedback.statusCode })}`
-        : '';
-
-    // Fetch process tags (normalized to ProcessTagItem[])
-    const { data: processTags = [], isLoading: tagsLoading, error: processTagsError } = useQuery({
-        queryKey: ['processTags', selectedFis],
-        queryFn: () => fisApi.getProcessTags(selectedFis),
-        staleTime: 5 * 60 * 1000,
-    });
-
-    // Fetch PN / userkey2 tags when enabled
-    const { data: pnTags = [], isLoading: pnLoading, error: pnError } = useQuery({
-        queryKey: ['userKey2Tags', selectedFis],
-        queryFn: () => fisApi.getUserKey2Tags(selectedFis),
-        enabled: assignPn,
-        staleTime: 5 * 60 * 1000,
-    });
-
-    // Filtered processes for multiple selection
-    const filteredMultiTags = useMemo(() => {
-        if (!multiSearchQuery.trim()) return processTags;
-        const q = multiSearchQuery.toLowerCase().trim();
-        return processTags.filter(tag => tag.key.toLowerCase().includes(q));
-    }, [processTags, multiSearchQuery]);
-
-    const createMutation = useMutation({
-        mutationFn: async (payload: CreateMasterPayload & { oldFis?: FisTarget }) => {
-            const { oldFis, ...createPayload } = payload;
-            if (createPayload.forceUpdate && oldFis && oldFis !== createPayload.fis) {
-                // Delete from the old FIS server first
-                await masterApi.deleteMaster(createPayload.unit, oldFis, { fisOnly: true });
-            }
-            return masterApi.createMaster(createPayload);
-        },
-        onSuccess: (res, variables) => {
-            if (res.data?.exists && !variables.forceUpdate) {
-                setExistingModalData({
-                    oldData: res.data.oldData ?? {},
-                    newData: res.data.newData ?? {},
-                });
-                return;
-            }
-
-            if (res.status) {
-                const isMigration = variables.forceUpdate && variables.oldFis && variables.oldFis !== variables.fis;
-                setFeedback(isMigration
-                    ? { type: 'success', key: 'masterMigrated', values: { unit: variables.unit, oldFis: variables.oldFis!, fis: variables.fis } }
-                    : { type: 'success', key: 'masterSaved' });
-                void refreshMasterData(queryClient);
-                setExistingModalData(null);
-                // Reset form
-                setSerialNumber('');
-                setAssignPn(false);
-                setSelectedPn('');
-                if (mode === 'single') setSingleProcess('');
-                else {
-                    setSelectedProcesses([]);
-                    setMultiSearchQuery('');
-                }
-            } else {
-                setFeedback({ type: 'error', key: 'masterSaveError', serverMessage: res.message });
-            }
-        },
-        onError: (error: unknown) => {
-            setFeedback({
-                type: 'error',
-                key: 'connectionError',
-                serverMessage: getErrorMessage(error, t.connectionError),
-                statusCode: error instanceof ApiError ? error.statusCode : undefined,
-            });
-        }
-    });
-
-    const handleSubmit = (e: React.SyntheticEvent, forceUpdate = false) => {
-        e.preventDefault();
-        setFeedback(null);
-
-        const sn = serialNumber.trim().toUpperCase();
-        if (!sn) {
-            setFeedback({ type: 'error', key: 'serialRequired' });
-            return;
-        }
-
-        const proc = mode === 'single' ? singleProcess.trim() : selectedProcesses.join(',');
-        if (!proc) {
-            setFeedback({ type: 'error', key: 'processRequired' });
-            return;
-        }
-
-        if (assignPn && !selectedPn.trim()) {
-            setPnRequiredError(true);
-            setFeedback({ type: 'error', key: 'pnValidation' });
-            return;
-        }
-
-        const oldFis = (forceUpdate && existingModalData?.oldData?.FIS)
-            ? normalizeFisTarget(existingModalData.oldData.FIS)
-            : undefined;
-
-        createMutation.mutate({
-            unit: sn,
-            process: proc,
-            status,
-            maxCounter: Number(maxCounter) || 1000,
-            maxErrors: Number(maxErrors) || 50,
-            fis: selectedFis,
-            userKey2: assignPn && selectedPn.trim() ? selectedPn.trim() : undefined,
-            forceUpdate,
-            oldFis,
-        });
-    };
-
-    const toggleMultiProcess = (procKey: string) => {
-        setSelectedProcesses(prev =>
-            prev.includes(procKey) ? prev.filter(p => p !== procKey) : [...prev, procKey]
-        );
-    };
-
-    const selectAllVisible = () => {
-        const visibleKeys = filteredMultiTags.map(t => t.key);
-        setSelectedProcesses(prev => Array.from(new Set([...prev, ...visibleKeys])));
-    };
-
-    const clearVisible = () => {
-        const visibleKeys = new Set(filteredMultiTags.map(t => t.key));
-        setSelectedProcesses(prev => prev.filter(k => !visibleKeys.has(k)));
-    };
-
+    const {
+        handleFisChange, feedbackMessage, feedbackStatus, filteredMultiTags, createMutation,
+        handleSubmit, toggleMultiProcess, selectAllVisible, clearVisible, mode,
+        setMode, serialNumber, singleProcess, setSingleProcess, selectedProcesses,
+        setSelectedProcesses, multiSearchQuery, setMultiSearchQuery, assignPn, selectedPn,
+        pnRequiredError, status, setStatus, maxCounter,
+        maxErrors, selectedFis, existingModalData, setExistingModalData,
+        feedback, setFeedback, t, processTags, tagsLoading,
+        pnTags, pnLoading, pnError, serialLengthLabel, selectedProcessesLabel,
+        noProcessesLabel, migrationDescription, setPnAssignment, choosePn, goToDashboard,
+        hasProcessTagsError, processErrorMessage, pnErrorMessage, isMigration, processChoices,
+        changeSerialNumber, hasSerialNumber, changeMaxCounter, changeMaxErrors, comparisonPn,
+        errorLimitPresets, usageLimitPresets,
+    } = useCreateMaster();
     return (
         <div className="max-w-2xl mx-auto space-y-6">
-            <ErrorBanner message={processTagsError ? localizedError(processTagsError, t.processLoadError) : null} />
+            <ErrorBanner message={processErrorMessage} />
             {/* Top Navigation Back */}
             <div className="flex items-center justify-between gap-3">
                 <button
                     type="button"
-                    onClick={() => navigate('/')}
+                    onClick={goToDashboard}
                     className="inline-flex items-center gap-2 text-sm font-semibold text-brand-text-muted hover:text-brand-text transition-all hover:-translate-x-1 cursor-pointer"
                 >
                     <ArrowLeft size={16} />
@@ -522,10 +124,10 @@ export const CreateMasterView: React.FC = () => {
                             <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
                                 {t.serialNumberLabel} <span className="text-rose-400">*</span>
                             </label>
-                            {serialNumber.trim() && (
+                            {hasSerialNumber && (
                                 <span className="text-[11px] font-mono text-brand-accent font-semibold flex items-center gap-1">
                                     <Check size={12} className="text-emerald-400" />
-                                    <span>{formatMessage(t.serialLength, { count: serialNumber.trim().length })}</span>
+                                    <span>{serialLengthLabel}</span>
                                 </span>
                             )}
                         </div>
@@ -534,7 +136,7 @@ export const CreateMasterView: React.FC = () => {
                             required
                             placeholder={t.serialNumberPlaceholder}
                             value={serialNumber}
-                            onChange={(e) => setSerialNumber(e.target.value.toUpperCase())}
+                            onChange={(e) => changeSerialNumber(e.target.value)}
                             className="w-full px-4 py-3 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-base font-bold placeholder-brand-text-muted/60 focus:outline-none focus:border-brand-accent transition-colors"
                         />
                     </div>
@@ -550,7 +152,7 @@ export const CreateMasterView: React.FC = () => {
                                 label={t.processLabel}
                                 placeholder={t.selectProcessPlaceholder}
                                 isLoading={tagsLoading}
-                                hasError={Boolean(processTagsError)}
+                                hasError={Boolean(hasProcessTagsError)}
                             />
                         ) : (
                         <div className="space-y-2.5">
@@ -560,7 +162,7 @@ export const CreateMasterView: React.FC = () => {
                                 </label>
                                 {selectedProcesses.length > 0 && (
                                     <span className="text-xs font-mono text-brand-accent font-bold">
-                                        {formatMessage(t.selectedProcessesCount, { count: selectedProcesses.length })}
+                                        {selectedProcessesLabel}
                                     </span>
                                 )}
                             </div>
@@ -648,11 +250,11 @@ export const CreateMasterView: React.FC = () => {
                                         <div className="text-xs text-brand-text-muted py-3 w-full text-center">{t.loadingProcesses}</div>
                                     ) : filteredMultiTags.length === 0 ? (
                                         <div className="text-xs text-brand-text-muted py-4 w-full text-center font-sans">
-                                            {formatMessage(t.noProcessesForQuery, { query: multiSearchQuery })}
+                                            {noProcessesLabel}
                                         </div>
                                     ) : (
-                                        filteredMultiTags.map(tag => {
-                                            const selected = selectedProcesses.includes(tag.key);
+                                        processChoices.map(tag => {
+                                            const selected = tag.selected;
                                             return (
                                                 <button
                                                     key={tag.key}
@@ -686,14 +288,7 @@ export const CreateMasterView: React.FC = () => {
                                 <input
                                     type="checkbox"
                                     checked={assignPn}
-                                    onChange={(e) => {
-                                        const nextChecked = e.target.checked;
-                                        setAssignPn(nextChecked);
-                                        setPnRequiredError(false);
-                                        if (!nextChecked) {
-                                            setSelectedPn('');
-                                        }
-                                    }}
+                                    onChange={event => setPnAssignment(event.target.checked)}
                                     className="peer sr-only"
                                 />
                                 <div className={`
@@ -719,7 +314,7 @@ export const CreateMasterView: React.FC = () => {
                                 <PnCombobox
                                     options={pnTags}
                                     value={selectedPn}
-                                    onChange={pn => { setSelectedPn(pn); setPnRequiredError(false); }}
+                                    onChange={choosePn}
                                     label={t.pnLabel}
                                     placeholder={t.pnPlaceholder}
                                     isLoading={pnLoading}
@@ -730,7 +325,7 @@ export const CreateMasterView: React.FC = () => {
                                 <p className="text-xs text-brand-text-muted">{t.pnManualHint}</p>
                                 {pnError && (
                                     <p className="text-xs text-rose-400 font-medium">
-                                        {localizedError(pnError, t.pnLoadError)} {t.pnManualStillAvailable}
+                                        {pnErrorMessage} {t.pnManualStillAvailable}
                                     </p>
                                 )}
                             </div>
@@ -774,68 +369,17 @@ export const CreateMasterView: React.FC = () => {
                     {/* 4. Counters Limits */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                                <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                    {t.maxCounterLabel}
-                                </label>
-                                <div className="flex items-center gap-1">
-                                    {[500, 1000, 2500, 5000].map((preset) => (
-                                        <button
-                                            key={preset}
-                                            type="button"
-                                            onClick={() => setMaxCounter(preset)}
-                                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
-                                                maxCounter === preset
-                                                    ? 'bg-brand-accent text-white shadow-xs'
-                                                    : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'
-                                            }`}
-                                        >
-                                            {preset}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <input
-                                type="number"
-                                min={50}
-                                max={5000}
-                                value={maxCounter}
-                                onChange={(e) => setMaxCounter(parseInt(e.target.value) || 0)}
-                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40"
-                            />
+                            <label htmlFor="master-cycle-limit" className="block text-xs font-bold uppercase tracking-wider text-brand-text">{t.maxCounterLabel}</label>
+                            <select id="master-cycle-limit" value={maxCounter} onChange={event => changeMaxCounter(event.target.value)} className="min-h-11 w-full rounded-xl border border-brand-border bg-brand-surface-high px-4 py-2.5 font-mono text-sm text-brand-text focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40">
+                                {usageLimitPresets.map(value => <option key={value} value={value}>{value}</option>)}
+                            </select>
                             <p className="text-[10px] text-brand-text-muted font-mono">{t.maxCounterHint}</p>
                         </div>
-
                         <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                                <label className="block text-xs font-bold uppercase tracking-wider text-brand-text">
-                                    {t.maxErrorsLabel}
-                                </label>
-                                <div className="flex items-center gap-1">
-                                    {[10, 25, 50, 100].map((preset) => (
-                                        <button
-                                            key={preset}
-                                            type="button"
-                                            onClick={() => setMaxErrors(preset)}
-                                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
-                                                maxErrors === preset
-                                                    ? 'bg-brand-accent text-white shadow-xs'
-                                                    : 'bg-brand-surface-high text-brand-text-muted hover:text-white hover:bg-slate-700'
-                                            }`}
-                                        >
-                                            {preset}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <input
-                                type="number"
-                                min={5}
-                                max={1000}
-                                value={maxErrors}
-                                onChange={(e) => setMaxErrors(parseInt(e.target.value) || 0)}
-                                className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-sm focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40"
-                            />
+                            <label htmlFor="master-error-limit" className="block text-xs font-bold uppercase tracking-wider text-brand-text">{t.maxErrorsLabel}</label>
+                            <select id="master-error-limit" value={maxErrors} onChange={event => changeMaxErrors(event.target.value)} className="min-h-11 w-full rounded-xl border border-brand-border bg-brand-surface-high px-4 py-2.5 font-mono text-sm text-brand-text focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40">
+                                {errorLimitPresets.map(value => <option key={value} value={value}>{value}</option>)}
+                            </select>
                             <p className="text-[10px] text-brand-text-muted font-mono">{t.maxErrorsHint}</p>
                         </div>
                     </div>
@@ -881,6 +425,11 @@ export const CreateMasterView: React.FC = () => {
                             </div>
                             <div className="divide-y divide-brand-border pt-2 space-y-2">
                                 <div className="grid grid-cols-3 gap-2 pt-2">
+                                    <span className="text-brand-text-muted">{t.serialNumberLabel}</span>
+                                    <span className="text-rose-400 font-semibold break-all">{existingModalData.oldData.unit}</span>
+                                    <span className="text-emerald-400 font-semibold break-all">{existingModalData.newData.unit}</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 pt-2">
                                     <span className="text-brand-text-muted">{t.thFis}</span>
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.FIS}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.FIS}</span>
@@ -905,23 +454,20 @@ export const CreateMasterView: React.FC = () => {
                                     <span className="text-rose-400 font-semibold">{existingModalData.oldData.errorMaxCounter}</span>
                                     <span className="text-emerald-400 font-semibold">{existingModalData.newData.errorMaxCounter}</span>
                                 </div>
-                                {Boolean((existingModalData.newData as { userKey2?: string })?.userKey2) && (
+                                {comparisonPn && (
                                     <div className="grid grid-cols-3 gap-2 pt-2">
                                         <span className="text-brand-text-muted">{t.pnLabel}</span>
                                         <span className="text-brand-text-muted">{t.unreadValue}</span>
-                                        <span className="text-emerald-400 font-semibold font-mono">{(existingModalData.newData as { userKey2?: string }).userKey2}</span>
+                                        <span className="text-emerald-400 font-semibold font-mono">{comparisonPn}</span>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {existingModalData.oldData.FIS && existingModalData.newData.FIS && normalizeFisTarget(existingModalData.oldData.FIS) !== normalizeFisTarget(existingModalData.newData.FIS) && (
+                        {isMigration && (
                             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-300">
                                 <strong>{t.fisMigrationTitle}</strong>{' '}
-                                {formatMessage(t.fisMigrationDescription, {
-                                    oldFis: existingModalData.oldData.FIS,
-                                    fis: existingModalData.newData.FIS,
-                                })}
+                                {migrationDescription}
                             </div>
                         )}
 

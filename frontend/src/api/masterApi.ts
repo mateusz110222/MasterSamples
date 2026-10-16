@@ -21,6 +21,15 @@ export interface GetMastersFilters {
     search?: string;
 }
 
+export interface MasterStructure {
+    requestedUnit: string;
+    unit: string;
+    children: string[];
+    exists: boolean;
+    masterFis?: FisTarget | null;
+    members: Record<string, { exists: boolean; archived: boolean; gold: boolean; parent: string; children: string[] }>;
+}
+
 export interface CreateMasterPayload {
     unit: string;
     process: string;
@@ -30,12 +39,19 @@ export interface CreateMasterPayload {
     fis: FisTarget;
     userKey2?: string;
     forceUpdate?: boolean;
+    previewOnly?: boolean;
+    sourceFis?: FisTarget;
+    sourceStructure?: MasterStructure;
+    expectedTargetStructure?: MasterStructure;
     user?: string;
     userName?: string;
     userGroups?: string[];
 }
 
 export interface CreateMasterResult {
+    requestedUnit?: string;
+    children?: string[];
+    structure?: MasterStructure;
     exists?: boolean;
     oldData?: Partial<MasterUnit>;
     newData?: Partial<MasterUnit>;
@@ -56,6 +72,18 @@ export interface DeleteMasterOptions {
 }
 
 export const masterApi = {
+    inspectMasterStructure: async (unit: string, process: string, fis: FisTarget): Promise<MasterStructure> => {
+        const result = await apiRequest<MasterStructure>(getCreateMasterUrl(fis), { job: 'InspectMasterStructure' }, {
+            method: 'POST', body: JSON.stringify({ unit, process, fis }),
+        });
+        if (!result.data) throw new Error('Missing master structure');
+        return result.data;
+    },
+    deleteMasterStructure: async (structure: MasterStructure, process: string, fis: FisTarget): Promise<void> => {
+        await apiRequest(getCreateMasterUrl(fis), { job: 'DeleteMasterStructure' }, {
+            method: 'POST', body: JSON.stringify({ unit: structure.unit, process, fis, expectedStructure: structure }),
+        });
+    },
     updateMaster: async (payload: UpdateMasterPayload): Promise<ApiResponse<{ unit: string; changed: boolean }>> => {
         const session = getSessionUser();
         return apiRequest(getCreateMasterUrl(payload.fis), { job: 'UpdateMaster' }, {

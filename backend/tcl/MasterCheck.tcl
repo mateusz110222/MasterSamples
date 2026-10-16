@@ -1,7 +1,7 @@
 ################################################################################
 #
 # @(#)
-# @(#) Title: Master Unit Check Building Block   Version: 1.2.0
+# @(#) Title: Master Unit Check Building Block   Version: 1.3.0
 # @(#)
 # @(#) Description: Collection of utilities for Master Unit verification,
 # @(#)              counting cycles, and station locking via MySQL 8.
@@ -21,18 +21,17 @@ package require Tcl 8.6
 
 namespace eval ::MasterCheck {
     namespace upvar :: param param
+    variable error ""
+    variable dbName "masterSample"
 
-    upvar error error
-    set error ""
-    set param(dbName) "masterSample"
-
-    if {[catch {
-        set configFile [file join $_sysvarc(FISVW_DB) config.cfg]
-        source $configFile
-    } err]} {
+    set initCode [catch {
+        uplevel #0 [list source [file join $::_sysvarc(FISVW_DB) config.cfg]]
+    } err]
+    if {$initCode} {
         set error "MasterCheck INIT ERROR: Failed to load config.cfg. Reason: $err"
+        set ::error $error
         ::Lib::ShowError $error
-        return 0
+        error $error
     }
 
     variable blockedDir   /fis/mantis/data/blocked_machines
@@ -82,9 +81,13 @@ namespace eval ::MasterCheck {
 
             try {
                 file attributes $path -group $blockedGroup -permissions 0664
-            } finally {
                 close $fd
+            } on error {message options} {
+                catch {close $fd}
+                catch {file delete $path}
+                return -options $options $message
             }
+            ::Lib::ShowDebug "Locked station: $station due to master check failure"
             return 1
         } on error {message options} {
             set error "Cannot lock station '$station': $message"
@@ -137,13 +140,14 @@ namespace eval ::MasterCheck {
 
     proc _Connect {} {
         global param
+        variable dbName
 
         set db [::mysql::connect \
             -host     $param(host) \
             -user     $param(user) \
             -password $param(password) \
             -port     $param(port) \
-            -db       $param(dbName) \
+            -db       $dbName \
             -encoding utf-8]
 
         try {
@@ -156,15 +160,25 @@ namespace eval ::MasterCheck {
         return $db
     }
 
-    proc _EnsureFisUnit {unit} {
+    proc _EnsureFisUnit {unit {allowMissing 0}} {
         if {![::Unit::Find $unit]} {
-            if {![::Archive::GetAll $unit] || ![::Archive::Unarchive $unit]} {
+            ::Lib::ShowDebug "Unit '$unit' not found; attempting to unarchive"
+            if {![::Archive::GetAll $unit]} {
+                if {$allowMissing} {
+                    ::Lib::ShowDebug "MasterCheck: unit='$unit' absent from FIS and archive; treating as production"
+                    return 0
+                }
                 error "Cannot find or unarchive unit '$unit'"
+            }
+            if {![::Archive::Unarchive $unit]} {
+                error "Cannot unarchive unit '$unit'"
             }
             if {![::Unit::Find $unit]} {
                 error "Unit '$unit' is still unavailable after unarchive"
             }
+            ::Lib::ShowDebug "MasterCheck: unit='$unit' restored from archive"
         }
+        return 1
     }
 
     proc _Candidates {unit process} {
@@ -306,6 +320,7 @@ namespace eval ::MasterCheck {
     }
 
     proc _Record {db unit process status} {
+        global value
         for {set attempt 0} {$attempt < 3} {incr attempt} {
             set inTransaction 0
             set committing    0
@@ -314,20 +329,33 @@ namespace eval ::MasterCheck {
                 _Exec $db {START TRANSACTION}
                 set inTransaction 1
 
-                set rows [_Rows $db "unit = [_Quote $db $unit]" 1]
+                set rows {}
+                foreach row [_Rows $db "unit = [_Quote $db $unit]" 1] {
+                    if {[_MatchesProcess [dict get $row process] $process]} {
+                        lappend rows $row
+                    }
+                }
                 if {[llength $rows] != 1} {
-                    error "Master disappeared before result recording"
+                    error "Expected one master for result recording; found [llength $rows]"
                 }
 
                 array set record [lindex $rows 0]
                 set expected [_Validate record $process]
+
+                if {[info exists value(TestType)] && [string trim $value(TestType)] ne ""} {
+                    set testType [string toupper [string trim $value(TestType)]]
+
+                    if {$testType eq "NOK" && $expected eq "FAIL"} {
+                        ::Lib::ShowDebug "Master TestType=NOK: unit='$unit', process='$process'; expected FAIL changed to PASS"
+                        set expected "PASS"
+                    }
+                }
+
                 set matched [expr {$status eq $expected}]
                 if {$status eq $expected} {
-                    # GOOD/PASS or BAD/FAIL: count the confirmed master cycle.
                     set counter currentCounter
                     set changes "currentCounter = currentCounter + 1"
                 } else {
-                    # GOOD/FAIL or BAD/PASS: count the mismatched master result.
                     set counter errorCounter
                     set changes "errorCounter = errorCounter + 1"
                 }
@@ -358,7 +386,8 @@ namespace eval ::MasterCheck {
                 set inTransaction 0
 
                 set before    $record(currentCounter)
-                set threshold [expr {max(1, $record(maxCounter) - 50)}]
+                set warnOffset [expr {min(50, max(1, int($record(maxCounter) * 0.2)))}]
+                set threshold [expr {max(1, $record(maxCounter) - $warnOffset)}]
                 set after     [expr {$before + $matched}]
                 set notify    [expr {$matched && $before < $threshold && $after >= $threshold}]
 
@@ -387,7 +416,7 @@ namespace eval ::MasterCheck {
                 }]
 
                 if {$isLockConflict} {
-                    ::Lib::ShowDebug "Retrying master transaction after DB lock conflict"
+                    ::Lib::ShowDebug "Retrying master transaction: unit='$unit', process='$process', mysqlCode=[lindex $code 2], nextAttempt=[expr {$attempt + 2}]/3"
                     after [expr {100 * ($attempt + 1)}]
                     continue
                 }
@@ -454,9 +483,17 @@ namespace eval ::MasterCheck {
         }
         set rows [_Select $db "SELECT mode, station, disabled FROM stationBlockingRules
             WHERE FIS = [_Quote $db $fis] AND
-                ((mode = 'single' AND station = [_Quote $db $station]) OR
+                ((mode = 'fis' AND station = 'ALL') OR
+                 (mode = 'single' AND station = [_Quote $db $station]) OR
                  (mode = 'prefix' AND station IN ([join $prefixes ,])))"]
-        return [_RuleEnabled $rows $station]
+        set enabled [_RuleEnabled $rows $station]
+        set source "no matching rule"
+        if {$enabled} { set source "station/prefix rule" }
+        foreach row $rows {
+            if {[lindex $row 0] eq "fis"} { set source "FIS override"; break }
+        }
+        ::Lib::ShowDebug "MasterCheck blocking: fis='$fis', station='$station', enabled=$enabled, source=$source"
+        return $enabled
     }
 
     proc _RuleEnabled {rows station} {
@@ -466,14 +503,17 @@ namespace eval ::MasterCheck {
         foreach row $rows {
             if {[llength $row] != 3} { error "Invalid station blocking rule" }
             lassign $row mode selector disabled
-            if {$mode ni {single prefix} || $disabled ni {0 1} ||
+            if {$mode ni {single prefix fis} || $disabled ni {0 1} ||
                 ![regexp {^[A-Za-z0-9][A-Za-z0-9_.-]*$} $selector] || [string length $selector] > 100} {
                 error "Invalid station blocking rule"
             }
             set identity [list $mode $selector]
             if {$identity in $seen} { error "Duplicate station blocking rule" }
             lappend seen $identity
-            if {$mode eq "single"} {
+            if {$mode eq "fis"} {
+                if {$selector ne "ALL"} { error "Invalid FIS blocking override" }
+                set priority 102
+            } elseif {$mode eq "single"} {
                 if {$selector ne $station} { continue }
                 set priority 101
             } else {
@@ -482,7 +522,7 @@ namespace eval ::MasterCheck {
             }
             if {$priority > $selected} {
                 set selected $priority
-                set enabled 1
+                set enabled [expr {!$disabled}]
             }
         }
         return $enabled
@@ -494,28 +534,43 @@ namespace eval ::MasterCheck {
         set error ""
         set db ""
         set blockingEnabled 0
+        set isMaster 0
 
         try {
             _CheckStationName $station
+            set process [string trim $process]
+
+            if {[_EnsureFisUnit $unit 1]} {
+                if {![::Unit::GetStatus $unit]} {
+                    error "Cannot get unit status for '$unit'"
+                }
+                set uk3 [expr {[info exists ::Unit::uk3] ? [string trim $::Unit::uk3] : ""}]
+                set isMaster [expr {$uk3 eq "GOLDEN"}]
+            }
+
+            if {!$isMaster} {
+                set lockCandidate [file join $blockedDir "${station}_MASTER"]
+                if {[catch {_ExistingLock $lockCandidate} hasLock] || !$hasLock} {
+                    if {![info exists hasLock] || $hasLock eq "0"} {
+                        return 1
+                    }
+                }
+            }
+
             set db [_Connect]
             set blockingEnabled [_BlockingEnabled $db $station]
             if {$blockingEnabled} { _StationPath $station }
-            set process [string trim $process]
 
-            # BREQ now handles every board, including ordinary production SNs.
-            if {$operation eq "BREQ"} {
-                _EnsureFisUnit $unit
-                if {![::Unit::GetStatus $unit] || ![info exists ::Unit::uk3]} {
-                    error "Cannot get unit status for '$unit'"
+            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status'"
+
+            if {!$isMaster} {
+                if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
+                    set error "Station blocked, master check required"
+                    ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
+                    return 0
                 }
-                if {$::Unit::uk3 ne "GOLDEN"} {
-                    if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
-                        set error "Station blocked, master check required"
-                        ::Lib::ShowError $error
-                        return 0
-                    }
-                    return 1
-                }
+                ::Lib::ShowDebug "MasterCheck production allowed: operation=$operation, unit='$unit', station='$station', blocking=$blockingEnabled; master counters unchanged"
+                return 1
             }
 
             if {$operation eq "BCMP"} {
@@ -544,28 +599,34 @@ namespace eval ::MasterCheck {
             _Notify $db $process result
 
             if {!$result(matched)} {
-                if {$blockingEnabled && ![LockStationMaster $station]} {
-                    error $error
+                set message "Wrong status ($status != $result(expected))"
+                if {$blockingEnabled} {
+                    if {[LockStationMaster $station]} {
+                        append message "; station '$station' blocked"
+                    } else {
+                        append message "; station block failed: $error"
+                    }
                 }
-                set error "Wrong status ($status != $result(expected))"
-                if {$blockingEnabled} { append error "; station '$station' blocked" }
-                ::Lib::ShowError $error
+                set error $message
+                ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
                 return 0
             }
 
             if {$blockingEnabled && ![UnlockStationMaster $station]} {
-                error $error
+                set error "Master result committed; $error (do not automatically repeat BCMP)"
+                ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
+                return 0
             }
 
             return 1
 
         } on error {message options} {
             if {!$blockingEnabled} { set message [string map {". Station blocked." "."} $message] }
-            if {$db ne "" && $blockingEnabled && ![LockStationMaster $station]} {
+            if {$isMaster && $db ne "" && $blockingEnabled && ![LockStationMaster $station]} {
                 append message "; station block failed: $error"
             }
             set error "MasterCheck $operation failed: $message"
-            ::Lib::ShowError $error
+            ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
             return 0
         } finally {
             if {$db ne "" && [catch {::mysql::close $db} closeError]} {
@@ -575,7 +636,6 @@ namespace eval ::MasterCheck {
     }
 
     proc BREQ {unit process station} {
-        ::Lib::ShowDebug "--- Checking master in BREQ ---"
         set result [_Run BREQ $unit $process $station]
         variable error
         upvar 1 error callerError
@@ -584,14 +644,12 @@ namespace eval ::MasterCheck {
     }
 
     proc BCMP {unit process station status} {
-        ::Lib::ShowDebug "--- Checking master in BCMP ---"
         set result [_Run BCMP $unit $process $station $status]
         variable error
         upvar 1 error callerError
         set callerError $error
         return $result
     }
-
     proc SafeUpdate {db sql} {
         set retries 3
 

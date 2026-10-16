@@ -1,62 +1,13 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router';
-import {
-    AlertCircle,
-    Eye,
-    EyeOff,
-    Key,
-    Loader2,
-    Lock,
-    ShieldCheck,
-    User,
-    UserCheck,
-    Globe,
-} from 'lucide-react';
-import { useAuth } from '../auth/useAuth';
-import { useLanguage } from '../i18n/useLanguage';
+import React from 'react';
+import { AlertCircle, Eye, EyeOff, Key, Loader2, Lock, ShieldCheck, User, UserCheck, Globe } from 'lucide-react';
+import { useLogin } from '../hooks/useLogin';
 
 export const LoginView: React.FC = () => {
-    const { login, loginAsGuest, isGuest } = useAuth();
-    const { t, language, setLanguage } = useLanguage();
-    const navigate = useNavigate();
-    const location = useLocation();
-
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-    const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const trimmedUser = username.trim();
-        if (!trimmedUser || !password) return;
-
-        setLoading(true);
-        setErrorMessage(null);
-
-        try {
-            const res = await login(trimmedUser, password);
-            if (!res.status) {
-                setErrorMessage(res.message || '');
-            } else {
-                const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
-                navigate(destination, { replace: true });
-            }
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : '';
-            setErrorMessage(msg);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleGuestLogin = () => {
-        loginAsGuest();
-        const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
-        navigate(destination, { replace: true });
-    };
-
+    const {
+        handleSubmit, handleGuestLogin, username, setUsername, password,
+        setPassword, showPassword, setShowPassword, loading, errorMessage,
+        isGuest, t, language, setLanguage, canSubmit,
+    } = useLogin();
     return (
         <div className="min-h-dvh box-border w-full bg-brand-bg flex justify-center items-center px-4 py-6 relative overflow-x-clip font-sans">
             {/* Przełącznik języka w prawym górnym rogu */}
@@ -170,7 +121,7 @@ export const LoginView: React.FC = () => {
 
                         <button
                             type="submit"
-                            disabled={loading || !username.trim() || !password}
+                            disabled={!canSubmit}
                             className="w-full py-3.5 bg-brand-accent hover:bg-brand-accent/90 text-brand-text font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-[0_10px_20px_rgba(99,102,241,0.25)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-3 cursor-pointer active:scale-[0.98]"
                         >
                             {loading ? (

@@ -6,6 +6,21 @@ import type { StationBlockingRule } from '../src/api/stationBlockingApi.ts';
 const tags = (names: string[]) => names.map(key => ({ key, description: key }));
 const rule = (station: string, mode: 'single' | 'prefix', _legacyDisabled: boolean, FIS: 'FIS1' | 'FIS2' = 'FIS1'): StationBlockingRule => ({ station, mode, FIS, user: 'operator', date: '2026-10-06' });
 
+test('FIS override covers future stations, wins over all rules and preserves FIS isolation', () => {
+    const saved = [rule('FTS', 'prefix', false), rule('FTS001', 'single', false)];
+    for (const disabled of [false, true]) {
+        const override: StationBlockingRule = { station: 'ALL', mode: 'fis', FIS: 'FIS1', disabled, user: 'operator', date: '' };
+        for (const rules of [[...saved, override], [override, ...saved]]) {
+            assert.equal(effectiveStationRule(rules, 'FIS1', 'FTS001'), override);
+            assert.equal(effectiveStationRule(rules, 'FIS1', 'FUTURE999'), override);
+            assert.equal(effectiveStationRule(rules, 'FIS2', 'FTS001'), undefined);
+        }
+        assert.deepEqual(matchingStations(tags(['FTS001', 'OTHER001']), 'ALL', 'fis'), ['FTS001', 'OTHER001']);
+    }
+    assert.equal(effectiveStationRule(saved, 'FIS1', 'FTS001')?.mode, 'single');
+    assert.equal(effectiveStationRule(saved, 'FIS1', 'FUTURE999'), undefined);
+});
+
 test('groups require two distinct numbered stations and preserve underscore prefixes', () => {
     assert.deepEqual(stationPrefixes(tags(['FTS001', 'FTS001', 'FTS002', 'FTS_TEST', 'FTS001_A', 'AMBIENT_H02', 'AMBIENT_H03', 'ALONE1', '123'])).map(tag => tag.key), ['AMBIENT_H', 'FTS']);
 });

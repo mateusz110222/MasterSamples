@@ -35,7 +35,7 @@ export const MainLayout: React.FC = () => {
                     sub: t.headerBlockedSub
                 };
             case '/admin/station-blocking':
-                return { title: t.stationBlockingTitle, sub: t.stationBlockingDescription };
+                return { title: t.stationBlockingTitle, sub: t.stationBlockingSubtitle };
             case '/admin/processes':
                 return {
                     title: t.headerEngineersTitle,
@@ -63,8 +63,8 @@ export const MainLayout: React.FC = () => {
             <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onLogout={handleLogout} />
 
             <main className="staff-main min-w-0 flex-1 space-y-6 p-4 sm:p-6 xl:p-8 w-full">
-                <header className="flex flex-wrap items-center justify-between gap-4 border-b border-brand-border/50 pb-4">
-                    <div className="flex items-start gap-3">
+                <header className="grid grid-cols-1 items-center gap-4 border-b border-brand-border/50 pb-4 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <div className="flex min-w-0 items-start gap-3">
                         <button
                             type="button"
                             onClick={() => setMobileNavOpen(true)}
@@ -75,14 +75,14 @@ export const MainLayout: React.FC = () => {
                         >
                             <Menu size={22} />
                         </button>
-                        <div>
+                        <div className="min-w-0">
                             <h1 className="text-2xl font-extrabold text-brand-text">{title}</h1>
                             <p className="mt-1 text-xs font-medium text-brand-text-muted">{sub}</p>
                         </div>
                     </div>
 
-                    <div className="flex min-w-0 flex-wrap items-center gap-4">
-                        <div className="flex items-center rounded-xl border border-brand-border bg-brand-surface p-1 font-mono text-xs font-bold">
+                    <div className="flex min-w-0 items-center gap-3 md:justify-self-end">
+                        <div className="flex shrink-0 items-center rounded-xl border border-brand-border bg-brand-surface p-1 font-mono text-xs font-bold">
                             <button
                                 type="button"
                                 onClick={() => setLanguage('PL')}
@@ -104,7 +104,7 @@ export const MainLayout: React.FC = () => {
                         </div>
 
                         {user && (
-                            <div className="flex min-w-0 max-w-full items-center gap-2">
+                            <div className="flex min-w-0 max-w-full items-center gap-2 md:max-w-xs">
                                 <div className="flex min-w-0 max-w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface px-4 py-2">
                                     <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg border text-xs font-bold ${
                                         isGuest
@@ -115,13 +115,13 @@ export const MainLayout: React.FC = () => {
                                     </div>
                                     <div className="min-w-0 break-words text-left">
                                         <p className="flex items-center gap-1.5 text-xs font-black leading-tight text-brand-text">
-                                            <span>{isGuest ? t.guestBadge : user.name || user.uid}</span>
+                                            <span className="min-w-0 truncate" title={isGuest ? t.guestBadge : user.name || user.uid}>{isGuest ? t.guestBadge : user.name || user.uid}</span>
                                             {canEdit ? (
-                                                <span className="rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
+                                                <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/20 px-1 font-mono text-[10px] text-emerald-400">
                                                     ADMIN
                                                 </span>
                                             ) : isGuest ? (
-                                                <span className="rounded border border-amber-500/30 bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
+                                                <span className="shrink-0 rounded border border-amber-500/30 bg-amber-500/20 px-1 font-mono text-[10px] text-amber-400">
                                                     {t.guestBadge}
                                                 </span>
                                             ) : null}

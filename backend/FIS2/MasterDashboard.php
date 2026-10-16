@@ -236,75 +236,296 @@ function getServerFis()
 function getRequestData()
 {
     static $input = null;
-    if ($input !== null) {
-        return $input;
+    if ($input === null) {
+        $contentType = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : (isset($_SERVER['HTTP_CONTENT_TYPE']) ? $_SERVER['HTTP_CONTENT_TYPE'] : '');
+        $form = Lib::getForm($contentType, FILENAME);
+        $input = array_merge($_GET, is_array($form) ? $form : array());
     }
-
-    $contentType = '';
-    if (isset($_SERVER['CONTENT_TYPE'])) {
-        $contentType = $_SERVER['CONTENT_TYPE'];
-    } elseif (isset($_SERVER['HTTP_CONTENT_TYPE'])) {
-        $contentType = $_SERVER['HTTP_CONTENT_TYPE'];
-    }
-
-    $form = null;
-    if (is_callable(array('BuildingBlocks\\Lib', 'getForm'))) {
-        try {
-            $form = Lib::getForm($contentType, FILENAME);
-        } catch (Exception $e) {
-            $form = null;
-        }
-    }
-
-    if (!is_array($form) || empty($form)) {
-        $raw = file_get_contents('php://input');
-        if (!empty($raw)) {
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                $form = $decoded;
-            }
-        }
-    }
-
-    if (!is_array($form) || empty($form)) {
-        if (isset($GLOBALS['HTTP_RAW_POST_DATA']) && !empty($GLOBALS['HTTP_RAW_POST_DATA'])) {
-            $decoded = json_decode($GLOBALS['HTTP_RAW_POST_DATA'], true);
-            if (is_array($decoded)) {
-                $form = $decoded;
-            }
-        }
-    }
-
-    if (!is_array($form) || empty($form)) {
-        if (!empty($_POST)) {
-            $form = $_POST;
-        }
-    }
-
-    if (!is_array($form)) {
-        $form = array();
-    }
-
-    $input = array_merge($_GET, $form);
     return $input;
 }
 
-function getParam(array $source)
+// BEGIN MASTER CREATION STRUCTURE (kept identical in both standalone endpoints).
+function masterFisReply($response, $operation)
 {
-    $args = func_get_args();
-    array_shift($args);
-    foreach ($args as $key) {
-        if (is_string($key) && $key !== '' && isset($source[$key]) && $source[$key] !== '') {
-            return $source[$key];
+    if (!is_array($response) || empty($response['status'])) {
+        $message = isset($response['message']) ? $response['message'] : 'Invalid FIS response';
+        if ($operation === 'Archive::GetAll' && isset($response['reply']) && is_string($response['reply']) && $response['reply'] !== '') {
+            // Archive::GetAll preserves the raw MDB report on an unsuccessful archrptdlm.
+            // Keep its header in the diagnostic instead of guessing that a bare SN means absent.
+            $lines = explode("\n", $response['reply']);
+            $message .= ' | MDB header: ' . substr(trim($lines[0]), 0, 512);
         }
+        throw new RuntimeException($operation . ': ' . $message);
     }
-    foreach ($args as $key) {
-        if (is_string($key) && $key !== '' && isset($_REQUEST[$key]) && $_REQUEST[$key] !== '') {
-            return $_REQUEST[$key];
-        }
-    }
-    return '';
+    return isset($response['reply']) ? $response['reply'] : null;
 }
+
+function masterExistsInWip($unit)
+{
+    try {
+        $result = Unit::Find($unit);
+        if (is_array($result) && isset($result['status']) && $result['status'] === false
+            && isset($result['message']) && $result['message'] === 'Unit not found') {
+            return false;
+        }
+        masterFisReply($result, 'Unit::Find');
+        return true;
+    } catch (Exception $error) {
+        if (!isMissingFisUnitError($error)) {
+            throw $error;
+        }
+        return false;
+    }
+}
+
+function masterReadUnit($unit, $withStructure = true)
+{
+    // Always check WIP first; technical Find failures must not trigger archive lookup.
+    if (!masterExistsInWip($unit)) {
+        // Ordinary masters need no historical metadata: absent in WIP means CREATEUNIT.
+        if (!$withStructure) {
+            return array('exists' => false, 'archived' => false, 'gold' => false, 'parent' => '', 'children' => array());
+        }
+        try {
+            // Read historical metadata even if this generation was unarchived earlier.
+            $archiveResult = Archive::GetAll($unit, '', 1);
+            $data = masterFisReply($archiveResult, 'Archive::GetAll');
+        } catch (Exception $archiveError) {
+            if (!isMissingFisUnitError($archiveError)) {
+                throw $archiveError;
+            }
+            return array('exists' => false, 'archived' => false, 'gold' => false, 'parent' => '', 'children' => array());
+        }
+        $archived = true;
+        $parent = $withStructure && isset($data['parent']) ? $data['parent'] : '';
+        $children = $withStructure && isset($data['children']) ? $data['children'] : array();
+    }
+    if (!isset($archived)) {
+        $data = masterFisReply(Unit::GetStatus($unit), 'Unit::GetStatus');
+        $parent = '';
+        $children = array();
+        if ($withStructure) {
+            $parentResult = Unit::GetParent($unit);
+            if (!is_array($parentResult) || !array_key_exists('status', $parentResult)) {
+                throw new RuntimeException('Invalid Unit::GetParent response');
+            }
+            // GetParent returns status=false for the normal "no parent" case.
+            if (empty($parentResult['status']) && (!isset($parentResult['message']) || $parentResult['message'] !== 'No parent found')) {
+                throw new RuntimeException('Unit::GetParent failed for ' . $unit);
+            }
+            if (!empty($parentResult['status']) && (!isset($parentResult['reply']) || !is_string($parentResult['reply']))) {
+                throw new RuntimeException('Invalid parent of ' . $unit);
+            }
+            $parent = !empty($parentResult['status']) ? $parentResult['reply'] : '';
+            $children = masterFisReply(Unit::GetChildren($unit), 'Unit::GetChildren');
+            // FIS2 GetChildren returns status=true, reply=null for an empty list.
+            if ($children === null) {
+                $children = array();
+            }
+        }
+        $archived = false;
+    }
+    if (!is_array($data) || !isset($data['uk3']) || !is_string($data['uk3']) || !is_array($children) || !is_string($parent)) {
+        throw new RuntimeException('Invalid unit structure for ' . $unit);
+    }
+    foreach ($children as $child) {
+        if (!is_string($child)) {
+            throw new RuntimeException('Invalid child identifier of ' . $unit);
+        }
+    }
+    $children = array_values(array_unique(array_map('trim', $children)));
+    sort($children, SORT_STRING);
+    foreach ($children as $child) {
+        if ($child === '' || $child === $unit) {
+            throw new RuntimeException('Invalid child of ' . $unit);
+        }
+    }
+    return array('exists' => true, 'archived' => $archived,
+        'gold' => stripos($data['uk3'], 'GOLD') !== false,
+        'parent' => trim($parent), 'children' => $children);
+}
+
+function inspectMasterStructure($requestedUnit, $process)
+{
+    $unit = $requestedUnit;
+    $withStructure = preg_match('/SMT|XRAY|ICT/i', $process) === 1;
+    $record = masterReadUnit($unit, $withStructure);
+    if ($withStructure && $record['parent'] !== '') {
+        $unit = $record['parent'];
+        $record = masterReadUnit($unit);
+        if (!$record['exists'] || !in_array($requestedUnit, $record['children'], true)) {
+            throw new RuntimeException('Parent/child structure is inconsistent');
+        }
+    }
+    if ($record['parent'] !== '' && count($record['children'])) {
+        throw new RuntimeException('Nested panel structure: ' . $unit);
+    }
+    $members = array($unit => $record);
+    foreach ($record['children'] as $child) {
+        $members[$child] = masterReadUnit($child);
+        if (!$members[$child]['exists']) {
+            throw new RuntimeException("Panel '$unit' lists child '$child', but the child was not found in FIS or archives");
+        }
+        // UBuiltFrom on the panel is authoritative when the child's UWin is empty.
+        // Accept one-way links in existing FIS data; recreated units are linked again.
+        if ($members[$child]['parent'] !== '' && $members[$child]['parent'] !== $unit) {
+            throw new RuntimeException("Child '$child' of panel '$unit' reports a different parent: '" . $members[$child]['parent'] . "'");
+        }
+        if (count($members[$child]['children'])) {
+            throw new RuntimeException("Child '$child' of panel '$unit' has its own children: " . implode(', ', $members[$child]['children']));
+        }
+    }
+    return array('requestedUnit' => $requestedUnit, 'unit' => $unit,
+        'children' => $record['children'], 'exists' => $record['exists'], 'members' => $members);
+}
+
+function masterStructureRecord($unit)
+{
+    $db = getDbConnection();
+    $stmt = $db->prepare('SELECT unit, FIS FROM masterUnits WHERE unit = ? LIMIT 1');
+    $stmt->bind_param('s', $unit);
+    $stmt->execute();
+    $record = function_exists('stmtFetchAssoc') ? stmtFetchAssoc($stmt) : $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $db->close();
+    return $record;
+}
+
+function masterCheckChildRecords($structure, $db)
+{
+    $stmt = $db->prepare('SELECT unit, FIS FROM masterUnits WHERE unit = ? LIMIT 1');
+    foreach ($structure['children'] as $child) {
+        $stmt->bind_param('s', $child);
+        $stmt->execute();
+        $record = function_exists('stmtFetchAssoc') ? stmtFetchAssoc($stmt) : $stmt->get_result()->fetch_assoc();
+        if ($record) {
+            $stmt->close();
+            throw new RuntimeException('Child already has a separate master record: ' . $child);
+        }
+    }
+    $stmt->close();
+}
+
+function masterStructureFailure($stage, $unit, $fis, $error, $completed)
+{
+    return new ApiOperationException(
+        formatOperationError('CreateMaster', $stage, $unit, $fis, $error,
+            empty($completed) ? 'fis_updated=false; database_updated=false'
+                : 'FIS operations are not rolled back; database_updated=false'),
+        502, array('fis' => $fis, 'stage' => $stage, 'failedUnit' => $unit,
+            'completed' => $completed, 'database_updated' => false), $error);
+}
+
+function masterStructureEqual($left, $right)
+{
+    return is_array($left) && is_array($right)
+        && isset($left['unit'], $left['children'], $left['members'])
+        && $left['unit'] === $right['unit'] && $left['children'] === $right['children']
+        && $left['members'] == $right['members'];
+}
+
+function masterImportStructure($target, $source, $process)
+{
+    if (!is_array($source) || !isset($source['unit'], $source['children'])
+        || !is_string($source['unit']) || !is_array($source['children']) || $source['unit'] === '') {
+        throw new RuntimeException('Invalid source structure');
+    }
+    if ($target['unit'] !== $source['unit']) {
+        throw new RuntimeException('Source and target panel numbers differ');
+    }
+    if ($target['exists'] && $target['children'] !== $source['children']) {
+        throw new RuntimeException('Source and target children differ');
+    }
+    if (!preg_match('/SMT|XRAY|ICT/i', $process) && count($source['children']) > 0) {
+        throw new RuntimeException('Panel creation is limited to SMT, XRAY and ICT processes');
+    }
+    foreach ($source['children'] as $child) {
+        if (!is_string($child) || trim($child) === '' || $child === $source['unit']) {
+            throw new RuntimeException('Invalid source child');
+        }
+        if (!isset($target['members'][$child])) {
+            $target['members'][$child] = masterReadUnit($child);
+        }
+        $record = $target['members'][$child];
+        if (($record['parent'] !== '' && $record['parent'] !== $target['unit']) || count($record['children'])) {
+            throw new RuntimeException('Target child belongs to another structure: ' . $child);
+        }
+    }
+    $target['children'] = array_values(array_unique($source['children']));
+    sort($target['children'], SORT_STRING);
+    return $target;
+}
+
+function applyMasterStructure($structure, $process, $status, $pn, $operator, $fis, $deleteOnly = false)
+{
+    $completed = array('unarchived' => array(), 'deleted' => array(), 'created' => array(), 'linked' => array());
+    $stage = 'structure_check';
+    $part = $structure['unit'];
+    try {
+        // Read every member before the first write. Never read children after deleting a panel.
+        foreach ($structure['members'] as $sn => $expected) {
+            $part = $sn;
+            if (masterReadUnit($sn, preg_match('/SMT|XRAY|ICT/i', $process) === 1) != $expected) {
+                throw new RuntimeException('Structure changed; refresh and confirm again: ' . $sn);
+            }
+        }
+        // Capture all children before deletion, then clear WIP completely before creating
+        // any new units. GOLD units must also be rebuilt to replace their old history.
+        $parts = array_merge($structure['children'], array($structure['unit']));
+        foreach ($parts as $part) {
+            $record = $structure['members'][$part];
+            $existsInWip = $record['exists'] && !$record['archived'];
+            // A missing WIP unit can be created directly. Do not restore its old
+            // history merely to delete it, including an "Already unarchived" generation.
+            if (!$existsInWip) {
+                $stage = 'find';
+                if (masterExistsInWip($part)) {
+                    $current = masterReadUnit($part, preg_match('/SMT|XRAY|ICT/i', $process) === 1);
+                    $expected = $record;
+                    $expected['archived'] = false;
+                    if ($current != $expected) {
+                        throw new RuntimeException('Unit changed before recreation: ' . $part);
+                    }
+                    $existsInWip = true;
+                }
+            }
+            if ($existsInWip) {
+                $stage = 'delete_existing';
+                masterFisReply(Unit::Delete($part), 'Unit::Delete');
+                $completed['deleted'][] = $part;
+            }
+        }
+        if (!$deleteOnly) {
+            $createOrder = array_merge(array($structure['unit']), $structure['children']);
+            foreach ($createOrder as $part) {
+                $stage = 'create_unit';
+                $dcmods = 'MS_HISTORY|' . $part . '_MASTER|MS_PROCESS|' . $process . '|MS_STATUS|' . $status . '|OPERATOR|' . $operator;
+                masterFisReply(Unit::DataEntry($part, 'CREATEUNIT', 'WEB', $dcmods, 'GOLD', '', (string)$pn, 'GOLDEN'), 'Unit::DataEntry');
+                $completed['created'][] = $part;
+            }
+        }
+        if (!$deleteOnly) {
+            foreach ($structure['children'] as $part) {
+                $stage = 'link';
+                $current = masterFisReply(Unit::GetChildren($structure['unit']), 'Unit::GetChildren');
+                if ($current === null) {
+                    $current = array();
+                }
+                if (!is_array($current)) {
+                    throw new RuntimeException('Invalid children after creation');
+                }
+                if (!in_array($part, $current, true)) {
+                    masterFisReply(Unit::Link($structure['unit'], $part), 'Unit::Link');
+                    $completed['linked'][] = $part;
+                }
+            }
+        }
+    } catch (Exception $error) {
+        throw masterStructureFailure($stage, $part, $fis, $error, $completed);
+    }
+    return $completed;
+}
+// END MASTER CREATION STRUCTURE
 
 function isMissingFisUnitError(Exception $error)
 {
@@ -345,7 +566,8 @@ function getAuthenticatedUser()
     }
 
     $input = getRequestData();
-    $inputUser = cleanUsername(getParam($input, 'user', 'userId'));
+    $inputUser = Lib::GetArrayString($input, 'user');
+    $inputUser = cleanUsername((string)$inputUser);
     if ($inputUser !== '') {
         return $inputUser;
     }
@@ -499,8 +721,8 @@ function getOperatorName()
     }
 
     $input = getRequestData();
-    $name = trim((string)getParam($input, 'userName', 'userFullName', 'operatorName'));
-    if ($name !== '') {
+    $name = Lib::GetArrayString($input, 'userName');
+    if ($name !== null) {
         return $name;
     }
 
@@ -509,12 +731,9 @@ function getOperatorName()
 }
 
 $input = getRequestData();
-$job = (string)getParam($input, 'job');
-if ($job === '' && isset($_GET['job'])) {
-    $job = (string)$_GET['job'];
-}
+$job = Lib::GetArrayString($input, 'job');
 
-if ($job === '') {
+if ($job === null) {
     Lib::ShowError(FILENAME, "Incoming request without 'job' parameter from IP " . (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown'));
     sendJsonResponse(false, 'Brak parametru job', null, 400);
 }
@@ -570,8 +789,8 @@ try {
 
         case 'DeleteBlockedMachine':
             $user = requireWriteAccess();
-            $record = trim((string)getParam($input, 'record', 'filename'));
-            if ($record === '' || $record === '.' || $record === '..' ||
+            $record = Lib::GetArrayString($input, 'filename');
+            if ($record === null || $record === '.' || $record === '..' ||
                 strpos($record, '/') !== false || strpos($record, chr(92)) !== false || strpos($record, chr(0)) !== false) {
                 sendJsonResponse(false, 'Nieprawidłowa nazwa pliku blokady', null, 400);
             }
@@ -588,9 +807,9 @@ try {
         case 'SetStationBlocking':
         case 'DeleteStationBlockingRule': {
             if ($job !== 'GetStationBlockingRules') {
-                requireWriteAccess();
+                $writeUser = requireWriteAccess();
             }
-            $fis = isset($input['fis']) && is_string($input['fis']) ? strtoupper(trim($input['fis'])) : '';
+            $fis = Lib::GetArrayString($input, 'fis');
             if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
                 sendJsonResponse(false, 'Nieprawidłowy serwer FIS', null, 400);
             }
@@ -599,12 +818,22 @@ try {
                 sendJsonResponse(false, 'Żądanie trafiło do niewłaściwego FIS', null, 409);
             }
             if ($job !== 'GetStationBlockingRules') {
-                $mode = isset($input['mode']) ? $input['mode'] : 'single';
-                $station = isset($input['station']) && is_string($input['station']) ? trim($input['station']) : '';
-                if (!in_array($mode, array('single', 'prefix'), true) ||
-                    !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/D', $station) ||
-                    ($job === 'SetStationBlocking' && isset($input['disabled']) && $input['disabled'] !== false)) {
+                $mode = Lib::GetArrayString($input, 'mode');
+                $station = Lib::GetArrayString($input, 'station');
+                $required_fields = compact('mode', 'station');
+                foreach ($required_fields as $field => $value) {
+                    if ($value === null) {
+                        throw new InvalidArgumentException("$field is required");
+                    }
+                }
+                if (!in_array($mode, array('single', 'prefix', 'fis'), true) ||
+                    ($mode === 'fis' ? $station !== 'ALL' : !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/D', $station)) ||
+                    ($job === 'SetStationBlocking' && array_key_exists('disabled', $input) && (!is_bool($input['disabled']) || ($mode !== 'fis' && $input['disabled'] !== false)))) {
                     sendJsonResponse(false, 'Nieprawidłowa stacja, prefix, zakres lub ustawienie blokowania', null, 400);
+                }
+                if ($mode === 'fis' && !array_intersect(getUserGroups($writeUser), array('admin_group', 'fisadmin_group'))) {
+                    Lib::ShowError(FILENAME, "[StationBlocking] FIS override denied for user '$writeUser', fis='$fis', job='$job'");
+                    sendJsonResponse(false, 'Nadrzędne blokowanie całego FIS mogą zmieniać tylko osoby z grup admin_group lub fisadmin_group', null, 403);
                 }
             }
             $mysqli = getDbConnection();
@@ -618,6 +847,7 @@ try {
                     while ($stmt->fetch()) {
                         $rows[] = array('station' => $station, 'mode' => $mode,
                             'FIS' => $rowFis, 'user' => $operator, 'date' => $date);
+                        if ($mode === 'fis') $rows[count($rows) - 1]['disabled'] = (bool)$disabled;
                     }
                     $stmt->close();
                     $mysqli->close();
@@ -632,7 +862,7 @@ try {
                 $exists = $check->fetch();
                 $check->close();
                 $deleting = $job === 'DeleteStationBlockingRule';
-                $disabled = 0; // Presence of a rule enables blocking.
+                $disabled = $mode === 'fis' && Lib::GetArrayBool($input, 'disabled') === true ? 1 : 0;
                 $changed = $deleting ? (bool)$exists : (!$exists || (int)$oldDisabled !== $disabled);
                 if ($changed) {
                     if ($deleting) {
@@ -643,8 +873,8 @@ try {
                     } else {
                         $stmt = $mysqli->prepare('INSERT INTO stationBlockingRules (FIS, mode, station, disabled, user, `date`) VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE disabled = VALUES(disabled), user = VALUES(user), `date` = NOW()');
                         $stmt->bind_param('sssis', $fis, $mode, $station, $disabled, $operator);
-                        $operation = 'EnableStationBlocking';
-                        $auditStatus = 'ENABLED';
+                        $operation = $disabled ? 'DisableStationBlocking' : 'EnableStationBlocking';
+                        $auditStatus = $disabled ? 'DISABLED' : 'ENABLED';
                     }
                     $stmt->execute();
                     $stmt->close();
@@ -674,13 +904,18 @@ try {
 
         case 'UpdateMaster': {
             requireWriteAccess();
-            foreach (array('unit', 'fis', 'process') as $key) {
-                if (!isset($input[$key]) || !is_string($input[$key]) || trim($input[$key]) === '') {
-                    sendJsonResponse(false, 'Numer mastera, FIS i procesy są wymagane', null, 400);
+            $unit = Lib::GetArrayString($input, 'unit');
+            $fis = Lib::GetArrayString($input, 'fis');
+            $process = Lib::GetArrayString($input, 'process');
+            $maxCounter = Lib::GetArrayInt($input, 'maxCounter');
+            $maxErrors = Lib::GetArrayInt($input, 'maxErrors');
+
+            $required_fields = compact('unit', 'fis', 'process', 'maxCounter', 'maxErrors');
+            foreach ($required_fields as $field => $value) {
+                if ($value === null) {
+                    throw new InvalidArgumentException("$field is required");
                 }
             }
-            $unit = trim($input['unit']);
-            $fis = strtoupper(trim($input['fis']));
             if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
                 sendJsonResponse(false, 'Nieprawidłowy serwer FIS', null, 400);
             }
@@ -689,7 +924,7 @@ try {
                 sendJsonResponse(false, 'Żądanie edycji trafiło do niewłaściwego FIS', null, 409);
             }
             $processes = array();
-            foreach (explode(',', $input['process']) as $process) {
+            foreach (explode(',', $process) as $process) {
                 $process = trim($process);
                 if ($process === '') {
                     sendJsonResponse(false, 'Lista procesów zawiera pustą nazwę', null, 400);
@@ -702,17 +937,10 @@ try {
             if (!preg_match('/^.{1,100}$/usD', $processClean)) {
                 sendJsonResponse(false, 'Lista procesów może mieć maksymalnie 100 znaków', null, 400);
             }
-            $limits = array();
-            foreach (array('maxCounter', 'maxErrors') as $key) {
-                $value = isset($input[$key]) ? $input[$key] : null;
-                if ((!is_int($value) && !is_string($value)) || !preg_match('/^[0-9]+$/D', (string)$value) ||
-                    (float)$value < 1 || (float)$value > 2147483647) {
-                    sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647', null, 400);
-                }
-                $limits[$key] = (int)$value;
+            if ($maxCounter < 1 || $maxErrors < 1
+                || $maxCounter > 2147483647 || $maxErrors > 2147483647) {
+                sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647.', null, 400);
             }
-            $maxCounter = $limits['maxCounter'];
-            $maxErrors = $limits['maxErrors'];
             $operatorName = getOperatorName();
             $mysqli = getDbConnection();
             try {
@@ -765,61 +993,116 @@ try {
             break;
         }
 
+        case 'InspectMasterStructure':
+        case 'DeleteMasterStructure':
+            requireWriteAccess();
+            $unit = Lib::GetArrayString($input, 'unit');
+            $process = Lib::GetArrayString($input, 'process');
+            $fis = Lib::GetArrayString($input, 'fis');
+
+            $required_fields = compact('unit', 'process', 'fis');
+            foreach ($required_fields as $field => $value) {
+                if ($value === null) {
+                    throw new InvalidArgumentException("$field is required");
+                }
+            }
+
+            if (!in_array($fis, array('FIS1', 'FIS2'), true)
+                || (getServerFis() !== null && getServerFis() !== $fis)) {
+                sendJsonResponse(false, 'Nieprawidłowe parametry struktury mastera.', null, 400);
+            }
+            $unit = strtoupper($unit);
+            try {
+                $structure = inspectMasterStructure($unit, $process);
+            } catch (Exception $error) {
+                throw masterStructureFailure(preg_match('/SMT|XRAY|ICT/i', $process) ? 'read_structure' : 'read_unit', $unit, $fis, $error, array());
+            }
+            $masterRecord = masterStructureRecord($structure['unit']);
+            $structure['masterFis'] = $masterRecord ? $masterRecord['FIS'] : null;
+            if ($job === 'DeleteMasterStructure') {
+                if (!$masterRecord || $masterRecord['FIS'] !== $fis || !$structure['exists']) {
+                    sendJsonResponse(false, 'Brak mastera na źródłowym FIS.', null, 409);
+                }
+                if (!isset($input['expectedStructure']) || !masterStructureEqual($input['expectedStructure'], $structure)) {
+                    sendJsonResponse(false, 'Struktura uległa zmianie. Odśwież dane przed migracją.', null, 409);
+                }
+                $structureDb = getDbConnection();
+                masterCheckChildRecords($structure, $structureDb);
+                $structureDb->close();
+                $completed = applyMasterStructure($structure, $process, '', '', '', $fis, true);
+                sendJsonResponse(true, 'Usunięto strukturę ze źródłowego FIS.', array('structure' => $structure, 'completed' => $completed));
+            }
+            sendJsonResponse(true, 'Odczytano strukturę mastera.', $structure);
+            break;
+
         case 'CreateMaster':
             $user = requireWriteAccess();
-            $unit = strtoupper(trim(getParam($input, 'unit', 'serialNumber')));
-            $processList = trim(getParam($input, 'process', 'processName'));
-            $statusInput = isset($input['status']) ? $input['status'] : 'GOOD';
-            if (!is_string($statusInput)) {
-                sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
+            $unit = Lib::GetArrayString($input, 'unit');
+            $process = Lib::GetArrayString($input, 'process');
+            $status = Lib::GetArrayString($input, 'status');
+            $maxCounter = Lib::GetArrayInt($input, 'maxCounter');
+            $maxErrors = Lib::GetArrayInt($input, 'maxErrors');
+            $fis = Lib::GetArrayString($input, 'fis');
+
+            $required_fields = compact('unit', 'process', 'status', 'maxCounter', 'maxErrors', 'fis');
+            foreach ($required_fields as $field => $value) {
+                if ($value === null) {
+                    throw new InvalidArgumentException("$field is required");
+                }
             }
-            $status = strtoupper(trim($statusInput));
-            $maxCounter = filter_var(isset($input['maxCounter']) ? $input['maxCounter'] : 1000, FILTER_VALIDATE_INT, array(
-                'options' => array('min_range' => 1, 'max_range' => 2147483647)
-            ));
-            $rawErrors = isset($input['maxErrors']) ? $input['maxErrors'] : (isset($input['errorMaxCounter']) ? $input['errorMaxCounter'] : 50);
-            $errorMaxCounter = filter_var($rawErrors, FILTER_VALIDATE_INT, array(
-                'options' => array('min_range' => 1, 'max_range' => 2147483647)
-            ));
-            $forceUpdate = !empty($input['forceUpdate']);
+
+            $forceUpdate = Lib::GetArrayBool($input, 'forceUpdate') === true;
 
             if (!in_array($status, array('GOOD', 'BAD'), true)) {
                 sendJsonResponse(false, 'Nieprawidłowy status. Dozwolone wartości: GOOD, BAD.', null, 400);
             }
-            if ($maxCounter === false || $errorMaxCounter === false) {
+            if ($maxCounter < 1 || $maxCounter > 2147483647 || $maxErrors < 1 || $maxErrors > 2147483647) {
                 sendJsonResponse(false, 'Limity muszą być dodatnimi liczbami całkowitymi do 2147483647.', null, 400);
             }
 
-            if ($unit === '' || $processList === '') {
-                Lib::ShowError(FILENAME, "[CreateMaster] Validation error: SN or process is empty (unit='$unit', process='$processList')");
-                sendJsonResponse(false, 'Numer seryjny (SN) oraz proces są wymagane!', null, 400);
-            }
-
-            $fRaw = getParam($input, 'fis');
-            $fisValue = $fRaw !== '' ? strtoupper(trim($fRaw)) : 'FIS2';
-            if (!in_array($fisValue, array('FIS1', 'FIS2'), true)) {
-                Lib::ShowError(FILENAME, "[CreateMaster] Invalid target FIS: '$fisValue'");
+            if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Invalid target FIS: '$fis'");
                 sendJsonResponse(false, 'Nieprawidłowy serwer docelowy FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
             }
 
-            $userKey2 = trim((string)getParam($input, 'userKey2', 'userkey2', 'pn'));
+            $unit = strtoupper($unit);
+            $userKey2 = Lib::GetArrayString($input, 'userKey2');
 
             $updFlag = $forceUpdate ? '1' : '0';
-            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$processList', status='$status', fis='$fisValue', maxCounter=$maxCounter, maxErrors=$errorMaxCounter, forceUpdate=$updFlag, user='$user', userKey2='$userKey2'");
+            Lib::ShowDebug(FILENAME, "[CreateMaster] Start unit='$unit', process='$process', status='$status', fis='$fis', maxCounter=$maxCounter, maxErrors=$maxErrors, forceUpdate=$updFlag, user='$user', userKey2='$userKey2'");
 
             $serverFis = getServerFis();
-            if ($serverFis !== null && $serverFis !== $fisValue) {
-                Lib::ShowError(FILENAME, "[CreateMaster] Target mismatch: request for $fisValue hit server $serverFis");
+            if ($serverFis !== null && $serverFis !== $fis) {
+                Lib::ShowError(FILENAME, "[CreateMaster] Target mismatch: request for $fis hit server $serverFis");
                 sendJsonResponse(
                     false,
-                    "Żądanie utworzenia dla $fisValue trafiło do $serverFis.",
-                    array('expected_fis' => $fisValue),
+                    "Żądanie utworzenia dla $fis trafiło do $serverFis.",
+                    array('expected_fis' => $fis),
                     409
                 );
             }
 
-            $processArray = array_filter(array_map('trim', explode(',', $processList)));
+            $processArray = array_values(array_unique(array_filter(array_map('trim', explode(',', $process)))));
             $processClean = implode(',', $processArray);
+            if ($processClean === '') {
+                sendJsonResponse(false, 'Proces jest wymagany.', null, 400);
+            }
+
+            $requestedUnit = $unit;
+            try {
+                $structure = inspectMasterStructure($requestedUnit, $processClean);
+                // A source snapshot carries the layout when the destination has no panel yet.
+                $sourceStructure = isset($input['sourceStructure']) ? $input['sourceStructure'] : null;
+                if ($sourceStructure !== null && !$structure['exists']) {
+                    if (!is_array($sourceStructure) || !isset($sourceStructure['unit']) || !is_string($sourceStructure['unit'])) {
+                        throw new RuntimeException('Invalid source structure');
+                    }
+                    $structure = inspectMasterStructure($sourceStructure['unit'], $processClean);
+                }
+                $unit = $structure['unit'];
+            } catch (Exception $error) {
+                throw masterStructureFailure(preg_match('/SMT|XRAY|ICT/i', $processClean) ? 'read_structure' : 'read_unit', $requestedUnit, $fis, $error, array());
+            }
 
             $mysqli = getDbConnection();
             $stmtCheck = $mysqli->prepare("SELECT unit, process, status, maxCounter, errorMaxCounter, isactive, FIS FROM masterUnits WHERE unit = ? LIMIT 1");
@@ -828,120 +1111,58 @@ try {
             $existing = stmtFetchAssoc($stmtCheck);
             $stmtCheck->close();
 
+            if ($sourceStructure !== null) {
+                if (!$existing || $existing['FIS'] !== Lib::GetArrayString($input, 'sourceFis') || $existing['FIS'] === $fis) {
+                    sendJsonResponse(false, 'Brak mastera na wskazanym źródłowym FIS.', null, 409);
+                }
+                try {
+                    $structure = masterImportStructure($structure, $sourceStructure, $processClean);
+                } catch (Exception $error) {
+                    throw masterStructureFailure(preg_match('/SMT|XRAY|ICT/i', $processClean) ? 'read_structure' : 'read_unit', $unit, $fis, $error, array());
+                }
+            }
+            try {
+                masterCheckChildRecords($structure, $mysqli);
+            } catch (Exception $error) {
+                throw masterStructureFailure('master_conflict', $unit, $fis, $error, array());
+            }
+            $structure['requestedUnit'] = $requestedUnit;
+            $structureData = array('requestedUnit' => $requestedUnit, 'unit' => $unit,
+                'children' => $structure['children'], 'structure' => $structure);
+
             if ($existing && !$forceUpdate) {
                 $mysqli->close();
                 Lib::ShowDebug(FILENAME, "[CreateMaster] Unit '$unit' already exists in database. Returning conflict comparison.");
                 sendJsonResponse(true, 'Master o tym numerze już istnieje w bazie', array(
-                    'exists' => true,
+                    'requestedUnit' => $requestedUnit, 'unit' => $unit, 'children' => $structure['children'],
+                'exists' => true,
                     'oldData' => $existing,
                     'newData' => array(
                         'unit' => $unit,
                         'process' => $processClean,
                         'status' => $status,
                         'maxCounter' => $maxCounter,
-                        'errorMaxCounter' => $errorMaxCounter,
-                        'FIS' => $fisValue,
+                        'errorMaxCounter' => $maxErrors,
+                        'FIS' => $fis,
                         'userKey2' => $userKey2
                     )
                 ));
             }
 
-            $unitExistsInFis = false;
-            $fisUnitDeleted = false;
-            try {
-                Unit::Find($unit);
-                $unitExistsInFis = true;
-            } catch (Exception $findError) {
-                if (!isMissingFisUnitError($findError)) {
-                    $mysqli->close();
-                    Lib::ShowError(FILENAME, "[CreateMaster] Unit::Find failed for '$unit': " . $findError->getMessage());
-                    throw new ApiOperationException(
-                        formatOperationError('CreateMaster', 'Unit::Find', $unit, $fisValue, $findError),
-                        502,
-                        array('fis' => $fisValue, 'stage' => 'find'),
-                        $findError
-                    );
-                }
-
-                try {
-                    Archive::GetAll($unit);
-                    Archive::Unarchive($unit);
-                    Unit::Find($unit);
-                    $unitExistsInFis = true;
-                } catch (Exception $archiveError) {
-                    if (!isMissingFisUnitError($archiveError)) {
-                        $mysqli->close();
-                        Lib::ShowError(FILENAME, "[CreateMaster] Archive::Unarchive failed for '$unit': " . $archiveError->getMessage());
-                        throw new ApiOperationException(
-                            formatOperationError('CreateMaster', 'Archive::Unarchive', $unit, $fisValue, $archiveError),
-                            502,
-                            array('fis' => $fisValue, 'stage' => 'unarchive'),
-                            $archiveError
-                        );
-                    }
-                }
+            if (Lib::GetArrayBool($input, 'previewOnly') === true) {
+                sendJsonResponse(true, 'Struktura gotowa do utworzenia mastera.', $structureData);
             }
-
-            if ($unitExistsInFis) {
-                try {
-                    Unit::Delete($unit);
-                    $fisUnitDeleted = true;
-                    Lib::ShowDebug(FILENAME, "[CreateMaster] Existing unit '$unit' deleted from FIS prior to recreation");
-                } catch (Exception $deleteError) {
-                    $mysqli->close();
-                    Lib::ShowError(FILENAME, "[CreateMaster] Deletion of existing unit '$unit' failed: " . $deleteError->getMessage());
-                    throw new ApiOperationException(
-                        formatOperationError('CreateMaster', 'Unit::Delete', $unit, $fisValue, $deleteError),
-                        502,
-                        array('fis' => $fisValue, 'stage' => 'delete_existing'),
-                        $deleteError
-                    );
-                }
+            if ($existing && $existing['FIS'] !== $fis && $sourceStructure === null) {
+                sendJsonResponse(false, 'Migracja wymaga odczytu struktury źródłowej.', $structureData, 409);
             }
-
+            if (isset($input['expectedTargetStructure']) && !masterStructureEqual($input['expectedTargetStructure'], $structure)) {
+                sendJsonResponse(false, 'Struktura docelowa uległa zmianie. Odśwież dane.', $structureData, 409);
+            }
             $creatorName = getOperatorName();
-            $dcmods = 'MS_HISTORY|' . $unit . '_MASTER|MS_PROCESS|' . $processClean . '|MS_STATUS|' . $status . '|OPERATOR|' . $creatorName;
-            try {
-                Unit::DataEntry(
-                    $unit,
-                    "CREATEUNIT",
-                    "WEB",
-                    $dcmods,
-                    "GOLD",
-                    "",
-                    $userKey2,
-                    "GOLDEN"
-                );
-                Lib::ShowDebug(FILENAME, "[CreateMaster] Unit::DataEntry succeeded for '$unit'");
-            } catch (Exception $dataEntryError) {
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[CreateMaster] Unit::DataEntry failed for '$unit': " . $dataEntryError->getMessage());
-                $state = $fisUnitDeleted
-                    ? 'previous_unit_deleted=true, new_unit_created=false; retry_required=true'
-                    : 'previous_unit_deleted=false, new_unit_created=false';
-                $message = formatOperationError(
-                    'CreateMaster',
-                    'Unit::DataEntry',
-                    $unit,
-                    $fisValue,
-                    $dataEntryError,
-                    $state
-                );
-                throw new ApiOperationException(
-                    $message,
-                    502,
-                    array(
-                        'fis' => $fisValue,
-                        'stage' => 'create_unit',
-                        'previous_unit_deleted' => $fisUnitDeleted,
-                        'database_updated' => false
-                    ),
-                    $dataEntryError
-                );
-            }
+            $completed = applyMasterStructure($structure, $processClean, $status, $userKey2, $creatorName, $fis);
 
-            dbBegin($mysqli);
             try {
+                dbBegin($mysqli);
                 $sqlUnit = "INSERT INTO masterUnits
                                 (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, user, isactive, FIS)
                             VALUES
@@ -956,7 +1177,7 @@ try {
                                 isactive = 1";
 
                 $stmtSave = $mysqli->prepare($sqlUnit);
-                $stmtSave->bind_param('sssiiss', $unit, $processClean, $status, $maxCounter, $errorMaxCounter, $creatorName, $fisValue);
+                $stmtSave->bind_param('sssiiss', $unit, $processClean, $status, $maxCounter, $maxErrors, $creatorName, $fis);
                 $stmtSave->execute();
                 $stmtSave->close();
 
@@ -981,7 +1202,7 @@ try {
                 Lib::ShowDebug(FILENAME, "[CreateMaster] Succeeded: Master '$unit' saved in database and FIS ($operation)");
 
                 $actionMsg = $existing ? "Master '$unit' został pomyślnie zaktualizowany!" : "Master '$unit' został pomyślnie utworzony i zarejestrowany!";
-                sendJsonResponse(true, $actionMsg, array('unit' => $unit, 'operation' => $operation, 'FIS' => $fisValue));
+                sendJsonResponse(true, $actionMsg, array_merge($structureData, array('operation' => $operation, 'FIS' => $fis, 'completed' => $completed)));
             } catch (Exception $err) {
                 dbRollback($mysqli);
                 $mysqli->close();
@@ -991,14 +1212,14 @@ try {
                         'CreateMaster',
                         'database_save',
                         $unit,
-                        $fisValue,
+                        $fis,
                         $err,
                         'fis_updated=true, database_updated=false; retry_required=true'
                     ),
                     500,
                     array(
-                        'fis' => $fisValue,
-                        'stage' => 'database_save',
+                        'fis' => $fis,
+                        'stage' => 'database_save', 'unit' => $unit, 'children' => $structure['children'], 'completed' => $completed,
                         'fis_updated' => true,
                         'database_updated' => false
                     ),
@@ -1009,17 +1230,22 @@ try {
 
         case 'DeleteMaster':
             $user = requireWriteAccess();
-            $unit = trim(getParam($input, 'unit', 'serialNumber'));
+            $unit = Lib::GetArrayString($input, 'unit');
+            $fis = Lib::GetArrayString($input, 'fis');
 
-            if ($unit === '') {
-                Lib::ShowError(FILENAME, "[DeleteMaster] Missing unit parameter");
-                sendJsonResponse(false, 'Brak parametru unit', null, 400);
+            $required_fields = compact('unit', 'fis');
+            foreach ($required_fields as $field => $value) {
+                if ($value === null) {
+                    throw new InvalidArgumentException("$field is required");
+                }
             }
 
-            $fisOnly = !empty($input['fisOnly']) || !empty($input['deleteFisOnly']);
-            $reqFis = isset($input['fis']) ? $input['fis'] : '';
+            $fisOnly = Lib::GetArrayBool($input, 'fisOnly') === true;
+            if (!in_array($fis, array('FIS1', 'FIS2'), true)) {
+                sendJsonResponse(false, 'Nieprawidłowy serwer FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
+            }
             $fisOnlyFlag = $fisOnly ? '1' : '0';
-            Lib::ShowDebug(FILENAME, "[DeleteMaster] Start unit='$unit', requestedFis='$reqFis', fisOnly=$fisOnlyFlag, user='$user'");
+            Lib::ShowDebug(FILENAME, "[DeleteMaster] Start unit='$unit', requestedFis='$fis', fisOnly=$fisOnlyFlag, user='$user'");
             $mysqli = getDbConnection();
             $stmtMaster = $mysqli->prepare("SELECT FIS FROM masterUnits WHERE unit = ? LIMIT 1");
             $stmtMaster->bind_param('s', $unit);
@@ -1034,27 +1260,19 @@ try {
             }
 
             $storedFis = $masterRow ? normalizeFisValue(isset($masterRow['FIS']) ? $masterRow['FIS'] : 'FIS1') : null;
-            $requestedFisRaw = isset($input['fis']) ? strtoupper(trim($input['fis'])) : '';
-            if ($requestedFisRaw !== '' && !in_array($requestedFisRaw, array('FIS1', 'FIS2'), true)) {
+            if (!$fisOnly && $storedFis !== null && $fis !== $storedFis) {
                 $mysqli->close();
-                Lib::ShowError(FILENAME, "[DeleteMaster] Invalid requested FIS: '$requestedFisRaw'");
-                sendJsonResponse(false, 'Nieprawidłowy serwer FIS. Dozwolone wartości: FIS1, FIS2.', null, 400);
-            }
-
-            $requestedFis = $requestedFisRaw !== '' ? $requestedFisRaw : ($storedFis ? $storedFis : 'FIS1');
-            if (!$fisOnly && $storedFis !== null && $requestedFis !== $storedFis) {
-                $mysqli->close();
-                Lib::ShowError(FILENAME, "[DeleteMaster] FIS mismatch for unit '$unit': expected '$storedFis', got '$requestedFis'");
+                Lib::ShowError(FILENAME, "[DeleteMaster] FIS mismatch for unit '$unit': expected '$storedFis', got '$fis'");
                 sendJsonResponse(
                     false,
-                    "Master '$unit' należy do $storedFis, a żądanie usunięcia wysłano dla $requestedFis.",
+                    "Master '$unit' należy do $storedFis, a żądanie usunięcia wysłano dla $fis.",
                     array('expected_fis' => $storedFis),
                     409
                 );
             }
 
             $serverFis = getServerFis();
-            $targetHostFis = $fisOnly ? $requestedFis : ($storedFis ? $storedFis : $requestedFis);
+            $targetHostFis = $fisOnly ? $fis : ($storedFis ? $storedFis : $fis);
             if ($serverFis !== null && $targetHostFis !== null && $serverFis !== $targetHostFis) {
                 $mysqli->close();
                 Lib::ShowError(FILENAME, "[DeleteMaster] Server mismatch: request hit $serverFis, but unit '$unit' belongs to $targetHostFis");
@@ -1101,8 +1319,8 @@ try {
                 ));
             }
 
-            dbBegin($mysqli);
             try {
+                dbBegin($mysqli);
                 $stmtHist = $mysqli->prepare(
                     "INSERT INTO history (unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, user, operation, `date`)
                      SELECT unit, process, status, currentCounter, maxCounter, errorCounter, errorMaxCounter, globalCounter, FIS, ?, 'Delete', NOW()
@@ -1171,6 +1389,9 @@ try {
     Lib::ShowError(FILENAME, "[Fatal] Stack trace:\n" . $e->getTraceAsString());
     if ($e instanceof ApiOperationException) {
         sendJsonResponse(false, $e->publicMessage, $e->responseData, $e->statusCode);
+    }
+    if ($e instanceof InvalidArgumentException) {
+        sendJsonResponse(false, 'Nieprawidłowy format danych wejściowych: ' . $e->getMessage(), null, 400);
     }
     sendJsonResponse(false, 'Wewnętrzny błąd serwera: ' . $e->getMessage(), null, 500);
 }

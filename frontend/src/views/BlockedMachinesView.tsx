@@ -1,74 +1,22 @@
-import React, { useState, useMemo } from 'react';
-import { useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
-import { blockedApi } from '../api/blockedApi';
-import type { BlockedMachine, FisTarget } from '../types';
-import { useAuth } from '../auth/useAuth';
-import { useLanguage } from '../i18n/useLanguage';
+import React from 'react';
 import { Modal } from '../components/common/Modal';
 import { Badge } from '../components/common/Badge';
 import { ErrorBanner } from '../components/common/ErrorBanner';
-import { getLocalizedErrorMessage } from '../lib/errors';
-import {
-    Trash2,
-    RefreshCw,
-    Search,
-    X,
-    CheckCircle2,
-    ShieldAlert
-} from 'lucide-react';
-
-const fisTargets: FisTarget[] = ['FIS1', 'FIS2'];
+import { Trash2, RefreshCw, Search, X, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { useBlockedMachines } from '../hooks/useBlockedMachines';
 
 export const BlockedMachinesView: React.FC = () => {
-    const { canEdit } = useAuth();
-    const { t, language } = useLanguage();
-    const queryClient = useQueryClient();
-    const [searchTerm, setSearchTerm] = useState('');
-    const [deleteTarget, setDeleteTarget] = useState<BlockedMachine | null>(null);
-    const [actionError, setActionError] = useState<unknown>(null);
-
-    const machineQueries = useQueries({
-        queries: fisTargets.map(fis => ({
-            queryKey: ['blockedMachines', fis],
-            queryFn: () => blockedApi.getBlockedMachines(fis),
-            refetchInterval: 30000,
-        })),
-    });
-    const machines = machineQueries.flatMap(query => query.data ?? []);
-    const isLoading = machineQueries.every(query => query.isPending);
-    const isFetching = machineQueries.some(query => query.isFetching);
-    const machinesError = machineQueries.map((query, index) => query.error
-        ? `${fisTargets[index]}: ${getLocalizedErrorMessage(query.error, language, t.blocksLoadError)}`
-        : '').filter(Boolean).join(' · ');
-    const refetch = () => Promise.all(machineQueries.map(query => query.refetch()));
-
-    const deleteMutation = useMutation({
-        mutationFn: (machine: BlockedMachine) => blockedApi.deleteBlockedMachine(machine.filename, machine.FIS),
-        onMutate: () => setActionError(null),
-        onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
-            void queryClient.invalidateQueries({ queryKey: ['history'] });
-            setDeleteTarget(null);
-        },
-        onError: (error: unknown) => setActionError(error),
-    });
-
-    const filteredMachines = useMemo(() => {
-        if (!searchTerm) return machines;
-        const s = searchTerm.toLowerCase();
-        return machines.filter(m =>
-            m.machine.toLowerCase().includes(s) ||
-            m.prefix.toLowerCase().includes(s) ||
-            m.filename.toLowerCase().includes(s) ||
-            m.FIS.toLowerCase().includes(s)
-        );
-    }, [machines, searchTerm]);
-
+    const {
+        machines, isLoading, isFetching, machinesError, refetch,
+        deleteMutation, filteredMachines, searchTerm, setSearchTerm, deleteTarget,
+        setDeleteTarget, actionError, canEdit, t, errorMessage,
+        dismissError, confirmUnblock,
+    } = useBlockedMachines();
     return (
         <div className="space-y-6">
             <ErrorBanner
-                message={actionError ? getLocalizedErrorMessage(actionError, language, t.actionError) : machinesError || null}
-                onDismiss={actionError ? () => setActionError(null) : undefined}
+                message={errorMessage}
+                onDismiss={actionError ? dismissError : undefined}
             />
             {/* Header info banner */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start gap-4 hover-lift">
@@ -222,7 +170,7 @@ export const BlockedMachinesView: React.FC = () => {
                             {t.blockedModalCancel}
                         </button>
                         <button
-                            onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+                            onClick={confirmUnblock}
                             disabled={deleteMutation.isPending}
                             className="px-5 py-2.5 rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-brand-text text-sm font-bold shadow-[0_0_15px_rgba(99,102,241,0.3)] transition-all cursor-pointer"
                         >

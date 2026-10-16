@@ -1,112 +1,30 @@
-import React, { useState, useMemo } from 'react';
-import { Engineer, MailItem } from '../types';
-import { useAuth } from '../auth/useAuth';
-import { useLanguage } from '../i18n/useLanguage';
+import React from 'react';
 import { Modal } from '../components/common/Modal';
 import { ErrorBanner } from '../components/common/ErrorBanner';
 import { EmailCombobox } from '../components/common/EmailCombobox';
-import { getLocalizedErrorMessage } from '../lib/errors';
-import { useEngineerActions, useEngineersQuery, useMailsQuery } from '../hooks/useEngineers';
-import {
-    Mail,
-    Plus,
-    Edit2,
-    Trash2,
-    Search,
-    RefreshCw,
-    Contact,
-    Layers
-} from 'lucide-react';
+import { Mail, Plus, Edit2, Trash2, Search, RefreshCw, Contact, Layers } from 'lucide-react';
+import { useEngineersView } from '../hooks/useEngineersView';
 
 export const EngineersView: React.FC = () => {
-    const { canEdit } = useAuth();
-    const { t, language } = useLanguage();
-
-    // Active tab: 'processes' (engineers records) or 'mails' (mail records)
-    const [activeTab, setActiveTab] = useState<'processes' | 'mails'>('processes');
-    const [searchTerm, setSearchTerm] = useState('');
-
-    // --- State for process assignments ---
-    const [editProcessTarget, setEditProcessTarget] = useState<Engineer | null>(null);
-    const [editProcessMailValue, setEditProcessMailValue] = useState('');
-    const [isAddProcessOpen, setIsAddProcessOpen] = useState(false);
-    const [newProcessName, setNewProcessName] = useState('');
-    const [newProcessMail, setNewProcessMail] = useState('');
-    const [deleteProcessTarget, setDeleteProcessTarget] = useState<Engineer | null>(null);
-
-    // --- State for standalone mail addresses (masterSample.mails) ---
-    const [isAddMailOpen, setIsAddMailOpen] = useState(false);
-    const [newMailName, setNewMailName] = useState('');
-    const [newMailAddress, setNewMailAddress] = useState('');
-    const [editMailTarget, setEditMailTarget] = useState<MailItem | null>(null);
-    const [editMailName, setEditMailName] = useState('');
-    const [editMailAddress, setEditMailAddress] = useState('');
-    const [deleteMailTarget, setDeleteMailTarget] = useState<MailItem | null>(null);
-    const [actionError, setActionError] = useState<unknown>(null);
-
-    // --- Queries ---
-    const { data: engineers = [], isLoading: engLoading, isFetching: engFetching, refetch: refetchEngineers, error: engineersError } = useEngineersQuery();
-    const { data: mails = [], isLoading: mailsLoading, isFetching: mailsFetching, refetch: refetchMails, error: mailsError } = useMailsQuery();
-
-    // --- Process Mutations ---
     const {
-        updateProcessMutation,
-        addProcessMutation,
-        deleteProcessMutation,
-        addMailMutation,
-        updateMailMutation,
-        deleteMailMutation,
-    } = useEngineerActions({
-        onMutate: () => setActionError(null),
-        onError: (error: unknown) => setActionError(error),
-        onProcessUpdated: () => setEditProcessTarget(null),
-        onProcessAdded: () => {
-            setIsAddProcessOpen(false);
-            setNewProcessName('');
-            setNewProcessMail('');
-        },
-        onProcessDeleted: () => setDeleteProcessTarget(null),
-        onMailAdded: () => {
-            setIsAddMailOpen(false);
-            setNewMailName('');
-            setNewMailAddress('');
-        },
-        onMailUpdated: () => setEditMailTarget(null),
-        onMailDeleted: () => setDeleteMailTarget(null),
-    });
-
-    // Suggestion pool from the mail directory and existing engineer records
-    const emailSuggestions = useMemo(() => {
-        const set = new Set<string>();
-        mails.forEach(m => { if (m.mail) set.add(m.mail.trim()); });
-        engineers.forEach(e => { if (e.mail) set.add(e.mail.trim()); });
-        return Array.from(set);
-    }, [mails, engineers]);
-
-    // Filtering
-    const filteredEngineers = useMemo(() => {
-        if (!searchTerm) return engineers;
-        const s = searchTerm.toLowerCase();
-        return engineers.filter(e =>
-            e.process.toLowerCase().includes(s) ||
-            (e.mail && e.mail.toLowerCase().includes(s))
-        );
-    }, [engineers, searchTerm]);
-
-    const filteredMails = useMemo(() => {
-        if (!searchTerm) return mails;
-        const s = searchTerm.toLowerCase();
-        return mails.filter(m =>
-            m.name.toLowerCase().includes(s) ||
-            m.mail.toLowerCase().includes(s)
-        );
-    }, [mails, searchTerm]);
-
+        emailSuggestions, filteredEngineers, filteredMails, activeTab, setActiveTab,
+        searchTerm, setSearchTerm, editProcessTarget, setEditProcessTarget, editProcessMailValue,
+        setEditProcessMailValue, isAddProcessOpen, setIsAddProcessOpen, newProcessName, newProcessMail,
+        setNewProcessMail, deleteProcessTarget, setDeleteProcessTarget, isAddMailOpen, setIsAddMailOpen,
+        newMailName, setNewMailName, newMailAddress, setNewMailAddress, editMailTarget,
+        setEditMailTarget, editMailName, setEditMailName, editMailAddress, setEditMailAddress,
+        deleteMailTarget, setDeleteMailTarget, actionError, canEdit, t,
+        engineers, engLoading, engFetching, mails, mailsLoading,
+        mailsFetching, updateProcessMutation, addProcessMutation, deleteProcessMutation, addMailMutation,
+        updateMailMutation, deleteMailMutation, errorMessage, dismissError, refresh,
+        openProcessEditor, openMailEditor, changeProcessName, updateProcess, addProcess,
+        deleteProcess, addMail, updateMail, deleteMail,
+    } = useEngineersView();
     return (
         <div className="space-y-6">
             <ErrorBanner
-                message={actionError ? getLocalizedErrorMessage(actionError, language, t.actionError) : engineersError ? getLocalizedErrorMessage(engineersError, language, t.engineersLoadError) : mailsError ? getLocalizedErrorMessage(mailsError, language, t.mailsLoadError) : null}
-                onDismiss={actionError ? () => setActionError(null) : undefined}
+                message={errorMessage}
+                onDismiss={actionError ? dismissError : undefined}
             />
             {/* Header info banner */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-5 shadow-lg flex items-start justify-between gap-4 flex-wrap hover-lift">
@@ -187,10 +105,7 @@ export const EngineersView: React.FC = () => {
 
                 <button
                     type="button"
-                    onClick={() => {
-                        void refetchEngineers();
-                        void refetchMails();
-                    }}
+                    onClick={refresh}
                     disabled={engFetching || mailsFetching}
                     className="interactive-button flex items-center gap-2 px-3.5 py-2 rounded-xl bg-brand-surface border border-brand-border text-brand-text hover:text-brand-text hover:border-brand-text-muted/60 text-xs font-bold uppercase tracking-wider cursor-pointer"
                 >
@@ -273,10 +188,7 @@ export const EngineersView: React.FC = () => {
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <button
                                                             type="button"
-                                                            onClick={() => {
-                                                                setEditProcessTarget(eng);
-                                                                setEditProcessMailValue(eng.mail || '');
-                                                            }}
+                                                            onClick={() => openProcessEditor(eng)}
                                                             className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-accent/10 border border-brand-accent/30 text-brand-accent hover:bg-brand-accent/20 text-xs font-semibold cursor-pointer"
                                                         >
                                                             <Edit2 size={13} />
@@ -354,11 +266,7 @@ export const EngineersView: React.FC = () => {
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <button
                                                             type="button"
-                                                            onClick={() => {
-                                                                setEditMailTarget(item);
-                                                                setEditMailName(item.name);
-                                                                setEditMailAddress(item.mail);
-                                                            }}
+                                                            onClick={() => openMailEditor(item)}
                                                             className="interactive-button inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-accent/10 border border-brand-accent/30 text-brand-accent hover:bg-brand-accent/20 text-xs font-semibold cursor-pointer"
                                                         >
                                                             <Edit2 size={13} />
@@ -397,10 +305,7 @@ export const EngineersView: React.FC = () => {
             >
                 {editProcessTarget && (
                     <form
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            updateProcessMutation.mutate({ process: editProcessTarget.process, mail: editProcessMailValue.trim() });
-                        }}
+                        onSubmit={event => { event.preventDefault(); updateProcess(); }}
                         className="space-y-4"
                     >
                         <EmailCombobox
@@ -440,11 +345,7 @@ export const EngineersView: React.FC = () => {
                 description={t.addProcessDescription}
             >
                 <form
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!newProcessName.trim()) return;
-                        addProcessMutation.mutate({ process: newProcessName.trim().toUpperCase(), mail: newProcessMail.trim() });
-                    }}
+                    onSubmit={event => { event.preventDefault(); addProcess(); }}
                     className="space-y-4"
                 >
                     <div className="space-y-1.5">
@@ -456,7 +357,7 @@ export const EngineersView: React.FC = () => {
                             required
                             placeholder={t.processExample}
                             value={newProcessName}
-                            onChange={(e) => setNewProcessName(e.target.value.toUpperCase())}
+                            onChange={(e) => changeProcessName(e.target.value)}
                             className="w-full px-4 py-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-brand-text font-mono text-xs focus:outline-none focus:border-brand-accent transition-colors"
                         />
                     </div>
@@ -509,7 +410,7 @@ export const EngineersView: React.FC = () => {
                         </button>
                         <button
                             type="button"
-                            onClick={() => deleteProcessTarget && deleteProcessMutation.mutate(deleteProcessTarget.id)}
+                            onClick={deleteProcess}
                             disabled={deleteProcessMutation.isPending}
                             className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-brand-text text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
                         >
@@ -531,14 +432,7 @@ export const EngineersView: React.FC = () => {
                 description={t.addMailDescription}
             >
                 <form
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!newMailAddress.trim()) return;
-                        addMailMutation.mutate({
-                            name: newMailName.trim() || newMailAddress.split('@')[0],
-                            mail: newMailAddress.trim()
-                        });
-                    }}
+                    onSubmit={event => { event.preventDefault(); addMail(); }}
                     className="space-y-4"
                 >
                     <div className="space-y-1.5">
@@ -596,15 +490,7 @@ export const EngineersView: React.FC = () => {
             >
                 {editMailTarget && (
                     <form
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            if (!editMailAddress.trim()) return;
-                            updateMailMutation.mutate({
-                                id: editMailTarget.id,
-                                name: editMailName.trim(),
-                                mail: editMailAddress.trim()
-                            });
-                        }}
+                        onSubmit={event => { event.preventDefault(); updateMail(); }}
                         className="space-y-4"
                     >
                         <div className="space-y-1.5">
@@ -675,7 +561,7 @@ export const EngineersView: React.FC = () => {
                         </button>
                         <button
                             type="button"
-                            onClick={() => deleteMailTarget && deleteMailMutation.mutate(deleteMailTarget.id)}
+                            onClick={deleteMail}
                             disabled={deleteMailMutation.isPending}
                             className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-brand-text text-sm font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
                         >

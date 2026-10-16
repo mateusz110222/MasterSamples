@@ -63,6 +63,18 @@ class Archive
      * @throws RuntimeException When the unit is in neither MDB nor any archive,
      *                          or when an archive could not be searched
      */
+    /** Normalize MDB report record separators without splitting spaces inside values. */
+    private static function SplitArchiveReport(string $report): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim($report));
+        if (count($lines) === 1) {
+            // MDB can return tagged records separated by whitespace, as in
+            // "archrptdlm|1 Unit|SN|... EVENT|CREATEUNIT|... DC||...".
+            $lines = preg_split('/[ \t]+(?=(?:Unit|EVENT|DC|UWin|UBuiltFrom)\|)/', trim($report));
+        }
+        return $lines;
+    }
+
     public static function GetAll(string $unit, string $archFile = "", int $allowUnar = 0): array
     {
         $unit = str_replace(["\r", "\n"], '', $unit);
@@ -88,7 +100,7 @@ class Archive
 
         $dlmRawRpt = (string)Lib::sendToMDB($query);
 
-        $reply = explode("\n", $dlmRawRpt);
+        $reply = self::SplitArchiveReport($dlmRawRpt);
         $header = explode("|", $reply[0] ?? '');
 
         $successFlag = isset($header[1]) ? trim($header[1]) : '';
@@ -145,7 +157,7 @@ class Archive
             "unit"    => $unit,
             "status"  => true,
             "message" => $message,
-            "reply"   => array_merge(["unit" => $unit], self::ParseArchiveLines($recordLines)),
+            "reply"   => array_merge(["unit" => $unit], self::parseArchiveLines($recordLines)),
         ];
     }
 
@@ -359,14 +371,6 @@ class Archive
             $hintFile2 = substr($searchArchFile, 0, -3) . 'HNT2';
 
             if (!is_file($hintFile2)) {
-                throw new RuntimeException("No Such Unit: " . $unit);
-            }
-
-            $cmd = 'grep ' . escapeshellarg("^" . $unit2Pattern . "|") . ' '
-                . escapeshellarg($hintFile2) . ' 2>/dev/null';
-            $out = @shell_exec($cmd);
-
-            if ($out === null || trim($out) === '') {
                 throw new RuntimeException("No Such Unit: " . $unit);
             }
 
@@ -688,99 +692,6 @@ class Archive
     }
 
     /**
-     * Parse MDB/archive record lines into the common unit reply structure.
-     *
-     * @param string[] $lines Record lines, without the leading header line
-     * @return array{
-     *   status: string,
-     *   part: string,
-     *   uk1: string,
-     *   uk2: string,
-     *   uk3: string,
-     *   gen: string,
-     *   events: string[],
-     *   children: string[],
-     *   childrengens: string[],
-     *   parent: string,
-     *   parentgen: string,
-     * }
-     */
-    private static function ParseArchiveLines(array $lines): array
-    {
-        $eventdata = '';
-        $events = [];
-        $children = [];
-        $childrenGens = [];
-        $status = '';
-        $part = '';
-        $uk1 = '';
-        $uk2 = '';
-        $uk3 = '';
-        $gen = '';
-        $parent = '';
-        $parentGen = '';
-
-        foreach ($lines as $line) {
-            $data = explode("|", (string)$line);
-
-            switch ($data[0]) {
-                case "Unit":
-                    $data = array_pad($data, 8, '');
-                    [, , $part, $uk1, $uk2, $uk3, , $gen] = $data;
-                    break;
-
-                case "EVENT":
-                    if ($eventdata !== '') {
-                        $events[] = $eventdata;
-                    }
-                    $eventdata = implode("|", array_slice($data, 1));
-                    $status = $data[6] ?? '';
-                    break;
-
-                case "DC":
-                    $data = array_pad($data, 5, '');
-                    [, , $dc, $dcmod, $value] = $data;
-
-                    if (trim((string)$dcmod) === '') {
-                        $eventdata .= "|" . $dc . "=" . $value;
-                    } else {
-                        $eventdata .= "|" . $dc . "=" . $dcmod;
-                    }
-                    break;
-
-                case "UWin":
-                    $data = array_pad($data, 3, '');
-                    [, $parent, $parentGen] = $data;
-                    break;
-
-                case "UBuiltFrom":
-                    $data = array_pad($data, 3, '');
-                    $children[] = $data[1];
-                    $childrenGens[] = $data[2];
-                    break;
-            }
-        }
-
-        if ($eventdata !== '') {
-            $events[] = $eventdata;
-        }
-
-        return [
-            "status"       => $status,
-            "part"         => $part,
-            "uk1"          => $uk1,
-            "uk2"          => $uk2,
-            "uk3"          => $uk3,
-            "gen"          => $gen,
-            "events"       => $events,
-            "children"     => $children,
-            "childrengens" => $childrenGens,
-            "parent"       => $parent,
-            "parentgen"    => $parentGen,
-        ];
-    }
-
-    /**
      * Czyta fragment z pliku .far wg offsetu i dlugosci.
      * Zwraca tablice linii: ["CA|<file>|<offset>|<len>", "<linia1>", ...]
      *
@@ -876,6 +787,79 @@ class Archive
         return $reply;
     }
 
+    /**
+     * Parse MDB/archive record lines into the common unit reply structure.
+     *
+     * @param string[] $lines Record lines (without the leading header line)
+     * @return array{
+     *   status: string, part: string, uk1: string, uk2: string, uk3: string,
+     *   gen: string, events: string[], children: string[], childrengens: string[],
+     *   parent: string, parentgen: string
+     * }
+     */
+    public static function parseArchiveLines(array $lines): array
+    {
+        $eventData = "";
+        $events = $children = $childrenGens = [];
+        $status = $part = $uk1 = $uk2 = $uk3 = $gen = $parent = $parentGen = '';
+
+        foreach ($lines as $line) {
+            $data = explode("|", (string)$line);
+
+            switch ($data[0]) {
+                case "Unit":
+                    $data = array_pad($data, 8, '');
+                    [, , $part, $uk1, $uk2, $uk3, , $gen] = $data;
+                    break;
+
+                case "EVENT":
+                    if ($eventData !== '') {
+                        $events[] = $eventData;
+                    }
+                    $eventData = implode("|", array_slice($data, 1));
+                    $status = $data[6] ?? '';
+                    break;
+
+                case "DC":
+                    $data = array_pad($data, 5, '');
+                    [, , $dc, $dcmod, $value] = $data;
+
+                    $eventData .= "|" . $dc . "="
+                        . (trim((string)$dcmod) === '' ? $value : $dcmod);
+                    break;
+
+                case "UWin":
+                    $data = array_pad($data, 3, '');
+                    [, $parent, $parentGen] = $data;
+                    break;
+
+                case "UBuiltFrom":
+                    $data = array_pad($data, 3, '');
+                    $children[] = $data[1];
+                    $childrenGens[] = $data[2];
+                    break;
+            }
+        }
+
+        if ($eventData !== '') {
+            $events[] = $eventData;
+        }
+
+        return [
+            "status" => $status,
+            "part" => $part,
+            "uk1" => $uk1,
+            "uk2" => $uk2,
+            "uk3" => $uk3,
+            "gen" => $gen,
+            "events" => $events,
+            "children" => $children,
+            "childrengens" => $childrenGens,
+            "parent" => $parent,
+            "parentgen" => $parentGen,
+        ];
+    }
+
     private static function LoadConfig(): array
     {
         if (self::$configCache === null) {
@@ -924,7 +908,7 @@ class Archive
 
     private static function ConvertedArchiveName(string $hintFile): string
     {
-        return explode('.', $hintFile)[0] . '.far';
+        return substr($hintFile, 0, -3) . 'far';
     }
 
     private static function IsMissFromArchive(string $message): bool
@@ -1230,6 +1214,11 @@ class Unit
         try {
             Lib::SendQueryToMDB($query);
         } catch (Exception $e) {
+            // findkey code 2 means absent (the same code checked by the FIS2 library).
+            // Timeout, protocol and permission errors must not be reported as absence.
+            if ((int)$e->getCode() !== 2) {
+                throw $e;
+            }
             throw new RuntimeException("Unit doesn't exist: " . $e->getMessage(), (int)$e->getCode(), $e);
         }
 
@@ -1328,6 +1317,7 @@ class Unit
      */
     public static function GetChildren(string $unit): array
     {
+        $unit = Lib::replaceCharsInUnit($unit);
         self::Find($unit);
 
         $query = "getlist|$unit|UBuiltFrom|1";
@@ -1369,6 +1359,7 @@ class Unit
      */
     public static function GetParent(string $unit): array
     {
+        $unit = Lib::replaceCharsInUnit($unit);
         self::Find($unit);
 
         $query = "getkeyptr|$unit|UWin|1";
@@ -1408,6 +1399,7 @@ class Unit
      */
     public static function GetNextProcess(string $unit): array
     {
+        $unit = Lib::replaceCharsInUnit($unit);
         self::Find($unit);
 
         $query = "nextproc|$unit";
@@ -1449,6 +1441,7 @@ class Unit
      */
     public static function GetProcessList(string $unit): array
     {
+        $unit = Lib::replaceCharsInUnit($unit);
         self::Find($unit);
 
         $query = "nextproclist|$unit";
@@ -1973,13 +1966,7 @@ class Unit
     public static function PerformHoldRouteCheck(string $unit, string $process): array
     {
         $unit = Lib::replaceCharsInUnit($unit);
-        $process = strtoupper(Lib::replaceCharsInUnit($process));
-
-        try {
-            self::Find($unit);
-        } catch (Exception $e) {
-            throw new RuntimeException("Unit not found: " . $unit, (int)$e->getCode(), $e);
-        }
+        $process = strtoupper($process);
 
         try {
             $UnitStatus = self::GetStatus($unit);
@@ -2046,6 +2033,7 @@ class Unit
      */
     public static function Delete(string $unit): array
     {
+        $unit = Lib::replaceCharsInUnit($unit);
         self::Find($unit);
 
         $query = "delunit|$unit|1";
@@ -2487,7 +2475,8 @@ class Hold
                 "unit" => $unit,
                 "status" => true,
                 "message" => "Hold Check Passed",
-                "reply" => null
+                "reply" => null,
+                "processlist" => [],
             ];
         }
 
@@ -2812,7 +2801,7 @@ class Lib
             if (count($parts) > 3) {
                 $errMsg .= "|" . implode("|", array_slice($parts, 3));
             }
-            throw new RuntimeException("Database replied false: $errMsg");
+            throw new RuntimeException("Database replied false: $errMsg", (int)$parts[1]);
         }
 
         return ["raw" => $reply, "parts" => $parts];
@@ -2921,39 +2910,13 @@ class Lib
         }
 
         if (stripos($contentType, 'multipart/form-data') !== false) {
-            if (in_array($_SERVER['REQUEST_METHOD'] ?? '', ['POST', 'PUT', 'PATCH'], true)) {
-                if (empty($_POST)) {
-                    $raw = file_get_contents('php://input');
-
-                    if (empty($raw)) {
-                        return [];
-                    }
-
-                    preg_match('/boundary=(.*)$/', $contentType, $matches);
-                    $boundary = $matches[1] ?? null;
-
-                    if ($boundary) {
-                        return self::parseMultipartFormData($raw, $boundary);
-                    }
-
-                    return [];
-                }
-
+            if (!empty($_POST)) {
                 return $_POST;
             }
-
             $raw = file_get_contents('php://input');
-            if (empty($raw)) {
-                return [];
+            if ($raw !== '' && preg_match('/boundary=(.*)$/', $contentType, $matches)) {
+                return self::parseMultipartFormData($raw, $matches[1]);
             }
-
-            preg_match('/boundary=(.*)$/', $contentType, $matches);
-            $boundary = $matches[1] ?? null;
-
-            if ($boundary) {
-                return self::parseMultipartFormData($raw, $boundary);
-            }
-
             return [];
         }
 
@@ -3121,7 +3084,6 @@ class Lib
 
             $unitDetails = Unit::GetStatus($unit);
             $part = $unitDetails['reply']['part'] ?? '';
-            Unit::Find($unit);
         } catch (RuntimeException $e) {
             $mysqli->close();
 
@@ -3275,20 +3237,6 @@ class Lib
     }
 
     /**
-     * Escape POSIX basic-regular-expression metacharacters for use in a grep pattern.
-     *
-     * escapeshellarg() protects the shell, but the value still reaches grep as a
-     * pattern: a unit containing '.', '*' or '[' would match more than itself.
-     *
-     * @param string $value
-     * @return string
-     */
-    public static function quoteBre(string $value): string
-    {
-        return preg_replace('/([.\\[\\]*^$\\\\])/', '\\\\$1', $value);
-    }
-
-    /**
      * Breadth-first walk over a unit and all of its descendants.
      *
      * Shared by Quarantine::CheckAll(), Route::CheckAll() and Hold::CheckAll(), which
@@ -3328,80 +3276,6 @@ class Lib
 
         return $unitsChecked;
     }
-
-        /**
-     * Parse MDB/archive record lines into the common unit reply structure.
-     *
-     * @param string[] $lines Record lines (without the leading header line)
-     * @return array{
-     *   status: string, part: string, uk1: string, uk2: string, uk3: string,
-     *   gen: string, events: string[], children: string[], childrengens: string[],
-     *   parent: string, parentgen: string
-     * }
-     */
-    public static function parseArchiveLines(array $lines): array
-    {
-        $eventData = "";
-        $events = $children = $childrenGens = [];
-        $status = $part = $uk1 = $uk2 = $uk3 = $gen = $parent = $parentGen = '';
-
-        foreach ($lines as $line) {
-            $data = explode("|", (string)$line);
-
-            switch ($data[0]) {
-                case "Unit":
-                    $data = array_pad($data, 8, '');
-                    [, , $part, $uk1, $uk2, $uk3, , $gen] = $data;
-                    break;
-
-                case "EVENT":
-                    if ($eventData !== '') {
-                        $events[] = $eventData;
-                    }
-                    $eventData = implode("|", array_slice($data, 1));
-                    $status = $data[6] ?? '';
-                    break;
-
-                case "DC":
-                    $data = array_pad($data, 5, '');
-                    [, , $dc, $dcmod, $value] = $data;
-
-                    $eventData .= "|" . $dc . "="
-                        . (trim((string)$dcmod) === '' ? $value : $dcmod);
-                    break;
-
-                case "UWin":
-                    $data = array_pad($data, 3, '');
-                    [, $parent, $parentGen] = $data;
-                    break;
-
-                case "UBuiltFrom":
-                    $data = array_pad($data, 3, '');
-                    $children[] = $data[1];
-                    $childrenGens[] = $data[2];
-                    break;
-            }
-        }
-
-        if ($eventData !== '') {
-            $events[] = $eventData;
-        }
-
-        return [
-            "status" => $status,
-            "part" => $part,
-            "uk1" => $uk1,
-            "uk2" => $uk2,
-            "uk3" => $uk3,
-            "gen" => $gen,
-            "events" => $events,
-            "children" => $children,
-            "childrengens" => $childrenGens,
-            "parent" => $parent,
-            "parentgen" => $parentGen,
-        ];
-    }
-
 
     public static function GetInt(string $key, int $method = INPUT_GET): int|null
     {
@@ -3782,6 +3656,11 @@ class Report
     private static function RunRealTime(): array|int
     {
         $a = self::$argsArr;
+
+        if (empty($a['from'])) {
+            throw new InvalidArgumentException("Report: no FROM time specified");
+        }
+
         $options = $a['option'];
 
         $tmp = self::$TMPDIR;
@@ -3834,10 +3713,6 @@ class Report
             ));
 
             $query = "sumrpt|" . $message;
-
-            if (empty($a['from'])) {
-               throw new InvalidArgumentException("Report: no FROM time specified");
-            }
 
             $reply = Lib::sendAndValidate($query)['raw'];
 

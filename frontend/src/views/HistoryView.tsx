@@ -1,219 +1,31 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
-import { masterApi } from '../api/masterApi';
-import { getFisUnitHistoryUrl } from '../api/fisApi';
-import { Badge, type BadgeVariant } from '../components/common/Badge';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import React from 'react';
+import { Link } from 'react-router';
+import { Badge } from '../components/common/Badge';
 import { ErrorBanner } from '../components/common/ErrorBanner';
-import { getErrorMessage } from '../lib/errors';
-import { useLanguage } from '../i18n/useLanguage';
 import { Pagination } from '../components/common/Pagination';
-import { parsePaginationParams } from '../lib/masterUtils';
-import { useAdaptiveTableColumns } from '../hooks/useAdaptiveTableColumns';
-import {
-    Search,
-    RefreshCw,
-    RotateCcw,
-    Calendar,
-    X,
-    ExternalLink,
-} from 'lucide-react';
-
-const stationOperations = new Set(['UnlockStation', 'DisableStationBlocking', 'EnableStationBlocking', 'DeleteStationBlockingRule']);
+import { Search, RefreshCw, RotateCcw, Calendar, X, ExternalLink } from 'lucide-react';
+import { useHistory } from '../hooks/useHistory';
 
 export const HistoryView: React.FC = () => {
-    const { language, t } = useLanguage();
-    const [searchParams, setSearchParams] = useSearchParams();
-
-    // Filters derived from searchParams as single source of truth
-    const urlUnit = searchParams.get('unit') ?? '';
-    const urlProcess = searchParams.get('process') ?? '';
-    const urlUser = searchParams.get('user') ?? '';
-
-    const [unitFilter, setUnitFilter] = useState(urlUnit);
-    const [processFilter, setProcessFilter] = useState(urlProcess);
-    const [userFilter, setUserFilter] = useState(urlUser);
-
-    const operationFilter = searchParams.get('operation') ?? '';
-    const statusFilter = searchParams.get('status') ?? '';
-    const dateFrom = searchParams.get('dateFrom') ?? '';
-    const dateTo = searchParams.get('dateTo') ?? '';
-    const { page, pageSize } = parsePaginationParams(searchParams);
-
-    // Synchronize local input filters when searchParams changes externally
-    useEffect(() => {
-        if (urlUnit !== unitFilter) setUnitFilter(urlUnit);
-    }, [urlUnit]);
-    useEffect(() => {
-        if (urlProcess !== processFilter) setProcessFilter(urlProcess);
-    }, [urlProcess]);
-    useEffect(() => {
-        if (urlUser !== userFilter) setUserFilter(urlUser);
-    }, [urlUser]);
-
-    const updateFilters = (updates: Record<string, string | number | null | undefined>) => {
-        setSearchParams(prev => {
-            const next = new URLSearchParams(prev);
-            Object.entries(updates).forEach(([key, val]) => {
-                if (
-                    val === undefined ||
-                    val === null ||
-                    val === '' ||
-                    (key === 'page' && Number(val) <= 1) ||
-                    (key === 'pageSize' && Number(val) === 50)
-                ) {
-                    next.delete(key);
-                } else {
-                    next.set(key, String(val));
-                }
-            });
-            return next;
-        }, { replace: true });
-    };
-
-    const debouncedUnitFilter = useDebouncedValue(unitFilter);
-    const debouncedUserFilter = useDebouncedValue(userFilter);
-    const debouncedProcessFilter = useDebouncedValue(processFilter);
-
-    // Debounce text inputs sync to searchParams
-    useEffect(() => {
-        if (debouncedUnitFilter !== (searchParams.get('unit') ?? '')) {
-            updateFilters({ unit: debouncedUnitFilter, page: 1 });
-        }
-    }, [debouncedUnitFilter]);
-
-    useEffect(() => {
-        if (debouncedProcessFilter !== (searchParams.get('process') ?? '')) {
-            updateFilters({ process: debouncedProcessFilter, page: 1 });
-        }
-    }, [debouncedProcessFilter]);
-
-    useEffect(() => {
-        if (debouncedUserFilter !== (searchParams.get('user') ?? '')) {
-            updateFilters({ user: debouncedUserFilter, page: 1 });
-        }
-    }, [debouncedUserFilter]);
-
-    const filtersKey = JSON.stringify([debouncedUnitFilter, operationFilter, debouncedUserFilter, debouncedProcessFilter, statusFilter, dateFrom, dateTo, pageSize]);
-    const tableScrollRef = useRef<HTMLTableSectionElement>(null);
-    const tableRef = useRef<HTMLTableElement>(null);
-    const paginationRef = useRef<HTMLDivElement>(null);
-    const pendingPageRef = useRef<number | null>(null);
-
-    useEffect(() => {
-        tableScrollRef.current?.scrollTo({ top: 0 });
-    }, [filtersKey]);
-
-    const { data: historyPage, isLoading, isFetching, refetch, error } = useQuery({
-        queryKey: ['history', filtersKey, page],
-        placeholderData: (previousData, previousQuery) =>
-            previousQuery?.queryKey[1] === filtersKey ? previousData : undefined,
-        queryFn: () => masterApi.getHistory({
-            unit: debouncedUnitFilter,
-            operation: operationFilter,
-            user: debouncedUserFilter,
-            process: debouncedProcessFilter,
-            status: statusFilter,
-            dateFrom,
-            dateTo,
-            limit: Math.min(pageSize + 1, 500),
-            offset: (page - 1) * pageSize,
-        }),
-    });
-
-    const historyRecords = historyPage?.records ?? [];
-    const visibleRecords = historyRecords.slice(0, pageSize);
-    const totalItems = historyPage?.total ?? 0;
-    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-    useAdaptiveTableColumns(tableRef, historyRecords, 9, 3, language);
-    useLayoutEffect(() => {
-        if (!isFetching && pendingPageRef.current === page) {
-            paginationRef.current?.scrollIntoView({ block: 'nearest' });
-            pendingPageRef.current = null;
-        }
-    }, [page, isFetching, historyPage]);
-    const handlePageChange = (nextPage: number) => {
-        pendingPageRef.current = nextPage;
-        updateFilters({ page: nextPage });
-        tableScrollRef.current?.scrollTo({ top: 0 });
-    };
-
-    const getOperationBadgeVariant = (op: string): BadgeVariant => {
-        switch (op.toLowerCase()) {
-            case 'create':
-                return 'success';
-            case 'update':
-                return 'info';
-            case 'reset':
-            case 'resetcycles':
-            case 'reseterrors':
-                return 'warning';
-            case 'block':
-            case 'delete':
-                return 'danger';
-            case 'activate':
-                return 'purple';
-            case 'unlockstation':
-            case 'enablestationblocking':
-                return 'success';
-            case 'disablestationblocking':
-            case 'deletestationblockingrule':
-                return 'warning';
-            default:
-                return 'neutral';
-        }
-    };
-
-    const getOperationLabel = (op: string): string => {
-        switch (op.toLowerCase()) {
-            case 'create':
-                return t.opCreate;
-            case 'update':
-                return t.opUpdate;
-            case 'reset':
-                return t.opReset;
-            case 'resetcycles':
-                return t.opResetCycles;
-            case 'reseterrors':
-                return t.opResetErrors;
-            case 'block':
-                return t.opBlock;
-            case 'activate':
-                return t.opActivate;
-            case 'unlockstation':
-                return t.opUnlockStation;
-            case 'disablestationblocking':
-                return t.opDisableStationBlocking;
-            case 'enablestationblocking':
-                return t.opEnableStationBlocking;
-            case 'deletestationblockingrule':
-                return t.opDeleteStationBlockingRule;
-            case 'delete':
-                return t.opDelete;
-            default:
-                return op;
-        }
-    };
-
-    const clearFilters = () => {
-        setUnitFilter('');
-        setProcessFilter('');
-        setUserFilter('');
-        setSearchParams({}, { replace: true });
-    };
-
-    const hasActiveFilters = Boolean(unitFilter || operationFilter || userFilter || processFilter || statusFilter || dateFrom || dateTo);
-
+    const {
+        operationFilter, statusFilter, dateFrom, dateTo, tableScrollRef,
+        tableRef, paginationRef, visibleRecords, totalItems, totalPages,
+        handlePageChange, clearFilters, hasActiveFilters, unitFilter, setUnitFilter,
+        processFilter, setProcessFilter, userFilter, setUserFilter, t,
+        page, pageSize, isLoading, isFetching, refetch,
+        hasError, errorMessage, historyRows, clearUnit, clearProcess,
+        clearUser, changeOperation, changeStatus, changeDateFrom, changeDateTo,
+        changePageSize,
+    } = useHistory();
     return (
         <div className="space-y-6">
-            <ErrorBanner message={error ? (language === 'PL' ? getErrorMessage(error, t.historyLoadError) : t.historyLoadError) : null} />
+            <ErrorBanner message={errorMessage} />
 
             {/* Filter Bar with Date Range, Status & Process */}
             <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-md space-y-3">
                 <div className="flex flex-wrap items-end gap-3">
                     {/* SN Search */}
-                    <div className="space-y-1 flex-1 min-w-[170px]">
+                    <div className="space-y-1 flex-1 min-w-42.5">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
                             {t.historySnLabel}
                         </label>
@@ -229,10 +41,7 @@ export const HistoryView: React.FC = () => {
                             {unitFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setUnitFilter('');
-                                        updateFilters({ unit: '', page: 1 });
-                                    }}
+                                    onClick={clearUnit}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -242,7 +51,7 @@ export const HistoryView: React.FC = () => {
                     </div>
 
                     {/* Process Search */}
-                    <div className="space-y-1 min-w-[150px]">
+                    <div className="space-y-1 min-w-37.5">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
                             {t.processLabel}
                         </label>
@@ -257,10 +66,7 @@ export const HistoryView: React.FC = () => {
                             {processFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setProcessFilter('');
-                                        updateFilters({ process: '', page: 1 });
-                                    }}
+                                    onClick={clearProcess}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -270,13 +76,13 @@ export const HistoryView: React.FC = () => {
                     </div>
 
                     {/* Operation Filter */}
-                    <div className="space-y-1 min-w-[160px]">
+                    <div className="space-y-1 min-w-40">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
                             {t.thOperation}
                         </label>
                         <select
                             value={operationFilter}
-                            onChange={(e) => updateFilters({ operation: e.target.value, page: 1 })}
+                            onChange={(e) => changeOperation(e.target.value)}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text focus:outline-none focus:border-brand-accent font-mono transition-colors hover:border-brand-text-muted/60 cursor-pointer"
                         >
                             <option value="">{t.allOperations}</option>
@@ -296,13 +102,13 @@ export const HistoryView: React.FC = () => {
                     </div>
 
                     {/* Status Filter */}
-                    <div className="space-y-1 min-w-[110px]">
+                    <div className="space-y-1 min-w-27.5">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
                             {t.thStatus}
                         </label>
                         <select
                             value={statusFilter}
-                            onChange={(e) => updateFilters({ status: e.target.value, page: 1 })}
+                            onChange={(e) => changeStatus(e.target.value)}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text focus:outline-none focus:border-brand-accent font-mono transition-colors hover:border-brand-text-muted/60 cursor-pointer"
                         >
                             <option value="">{t.allStatuses}</option>
@@ -312,35 +118,35 @@ export const HistoryView: React.FC = () => {
                     </div>
 
                     {/* Date From */}
-                    <div className="space-y-1 min-w-[135px]">
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted flex items-center gap-1">
+                    <div className="space-y-1 min-w-33.75">
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted items-center gap-1">
                             <Calendar size={11} className="text-brand-accent" />
                             <span>{t.filterDateFrom}</span>
                         </label>
                         <input
                             type="date"
                             value={dateFrom}
-                            onChange={(e) => updateFilters({ dateFrom: e.target.value, page: 1 })}
+                            onChange={(e) => changeDateFrom(e.target.value)}
                             className="h-9 px-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         />
                     </div>
 
                     {/* Date To */}
-                    <div className="space-y-1 min-w-[135px]">
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted flex items-center gap-1">
+                    <div className="space-y-1 min-w-33.75">
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted items-center gap-1">
                             <Calendar size={11} className="text-brand-accent" />
                             <span>{t.filterDateTo}</span>
                         </label>
                         <input
                             type="date"
                             value={dateTo}
-                            onChange={(e) => updateFilters({ dateTo: e.target.value, page: 1 })}
+                            onChange={(e) => changeDateTo(e.target.value)}
                             className="h-9 px-2.5 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         />
                     </div>
 
                     {/* User Search */}
-                    <div className="space-y-1 min-w-[140px]">
+                    <div className="space-y-1 min-w-35">
                         <label className="block text-[10px] font-bold uppercase tracking-wider text-brand-text-muted">
                             {t.historyUser}
                         </label>
@@ -355,10 +161,7 @@ export const HistoryView: React.FC = () => {
                             {userFilter && (
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setUserFilter('');
-                                        updateFilters({ user: '', page: 1 });
-                                    }}
+                                    onClick={clearUser}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-text-muted hover:text-white"
                                 >
                                     <X size={13} />
@@ -375,7 +178,7 @@ export const HistoryView: React.FC = () => {
                         <select
                             id="history-page-size"
                             value={pageSize}
-                            onChange={(event) => updateFilters({ pageSize: Number(event.target.value), page: 1 })}
+                            onChange={(event) => changePageSize(event.target.value)}
                             className="h-9 px-3 bg-brand-surface-high border border-brand-border rounded-xl text-xs text-brand-text font-mono focus:outline-none focus:border-brand-accent cursor-pointer"
                         >
                             {[15, 25, 50, 100, 250, 500].map(size => <option key={size} value={size}>{size}</option>)}
@@ -410,7 +213,7 @@ export const HistoryView: React.FC = () => {
 
                 <div className="flex items-center justify-between text-xs text-brand-text-muted font-mono pt-1 border-t border-brand-border/60">
                     <span>
-                        {error ? t.historyCountError : isLoading ? t.historyLoadingCount : t.historyCount.replace('{count}', String(totalItems))}
+                        {hasError ? t.historyCountError : isLoading ? t.historyLoadingCount : t.historyCount.replace('{count}', String(totalItems))}
                     </span>
                     {hasActiveFilters && (
                         <span className="text-brand-accent font-medium">{t.historyActiveFilters}</span>
@@ -445,7 +248,7 @@ export const HistoryView: React.FC = () => {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : error ? (
+                            ) : hasError ? (
                                 <tr>
                                     <td colSpan={9} className="py-12 text-center text-brand-text-muted font-sans">
                                         {t.historyLoadError}
@@ -458,7 +261,7 @@ export const HistoryView: React.FC = () => {
                                     </td>
                                 </tr>
                             ) : (
-                                visibleRecords.map((rec, idx) => (
+                                historyRows.map((rec, idx) => (
                                     <tr
                                         key={rec.id}
                                         style={{ animationDelay: `${Math.min(idx * 15, 300)}ms` }}
@@ -470,15 +273,15 @@ export const HistoryView: React.FC = () => {
                                         <td className="py-3 px-4 font-bold text-brand-text tracking-wide">
                                             <div className="flex items-center gap-1.5 w-max">
                                                 <Link
-                                                    to={stationOperations.has(rec.operation) ? (rec.operation === 'UnlockStation' ? '/blocked-machines' : '/admin/station-blocking') : `/?search=${encodeURIComponent(rec.unit)}`}
+                                                    to={rec.dashboardUrl}
                                                     className="whitespace-nowrap font-mono text-brand-accent hover:text-indigo-300 hover:underline"
-                                                    title={stationOperations.has(rec.operation) ? getOperationLabel(rec.operation) : t.historyDashboardLink.replace('{unit}', rec.unit)}
+                                                    title={rec.dashboardLinkTitle}
                                                 >
                                                     <span>{rec.unit}</span>
                                                 </Link>
-                                                {stationOperations.has(rec.operation) && <span className="rounded border border-brand-border px-1.5 py-0.5 text-[10px] text-brand-text-muted">{rec.FIS}</span>}
-                                                {!stationOperations.has(rec.operation) && rec.FIS && ['FIS1', 'FIS2', '1', '2'].includes(rec.FIS.trim().toUpperCase()) && <a
-                                                    href={getFisUnitHistoryUrl(rec.unit, rec.FIS)}
+                                                {rec.isStationOperation && <span className="rounded border border-brand-border px-1.5 py-0.5 text-[10px] text-brand-text-muted">{rec.FIS}</span>}
+                                                {rec.fisHistoryUrl && <a
+                                                    href={rec.fisHistoryUrl}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="p-0.5 text-brand-text-muted/40 hover:text-brand-accent transition-colors"
@@ -489,15 +292,15 @@ export const HistoryView: React.FC = () => {
                                             </div>
                                         </td>
                                         <td className="py-3 px-4">
-                                            <Badge variant={getOperationBadgeVariant(rec.operation)}>
-                                                {getOperationLabel(rec.operation)}
+                                            <Badge variant={rec.operationBadgeVariant}>
+                                                {rec.operationLabel}
                                             </Badge>
                                         </td>
                                         <td className="py-3 px-4 text-brand-text font-semibold">
-                                            <span className="block w-max max-w-[17rem] [overflow-wrap:anywhere]">{rec.process === 'BLOCKING_POLICY:prefix' ? t.stationRulePrefix : rec.process === 'BLOCKING_POLICY:single' || rec.process === 'BLOCKING_POLICY' ? t.stationRuleSingle : rec.process}</span>
+                                            <span className="block w-max max-w-68 wrap-anywhere">{rec.processLabel}</span>
                                         </td>
                                         <td className="py-3 px-4 text-center">
-                                            {['ENABLED', 'DISABLED', 'INHERIT'].includes(rec.status ?? '') ? <Badge variant={rec.status === 'DISABLED' ? 'warning' : rec.status === 'ENABLED' ? 'success' : 'info'}>{rec.status === 'DISABLED' ? t.stationRuleDisabled : rec.status === 'ENABLED' ? t.stationRuleEnabled : t.stationRuleInherit}</Badge> : rec.status === 'GOOD' ? (
+                                            {rec.isBlockingPolicyChange ? <Badge variant={rec.status === 'DISABLED' ? 'warning' : rec.status === 'ENABLED' ? 'success' : 'info'}>{rec.statusLabel}</Badge> : rec.status === 'GOOD' ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                                                     GOOD
                                                 </span>
@@ -510,16 +313,16 @@ export const HistoryView: React.FC = () => {
                                             )}
                                         </td>
                                         <td className="py-3 px-4 text-slate-200">
-                                            {stationOperations.has(rec.operation) ? '—' : <>{rec.currentCounter} <span className="text-brand-text-muted/60">/ {rec.maxCounter}</span></>}
+                                            {rec.isStationOperation ? '—' : <>{rec.currentCounter} <span className="text-brand-text-muted/60">/ {rec.maxCounter}</span></>}
                                         </td>
                                         <td className="py-3 px-4">
-                                            {stationOperations.has(rec.operation) ? '—' : <><span className={(rec.errorCounter ?? 0) > 0 ? 'text-rose-400 font-bold' : 'text-slate-200'}>
+                                            {rec.isStationOperation ? '—' : <><span className={(rec.errorCounter ?? 0) > 0 ? 'text-rose-400 font-bold' : 'text-slate-200'}>
                                                 {rec.errorCounter}
                                             </span>
                                             <span className="text-brand-text-muted/60"> / {rec.errorMaxCounter}</span></>}
                                         </td>
                                         <td className="py-3 px-4 font-bold text-slate-200">
-                                            {stationOperations.has(rec.operation) ? '—' : rec.globalCounter?.toLocaleString() ?? 0}
+                                            {rec.isStationOperation ? '—' : rec.globalCounter?.toLocaleString() ?? 0}
                                         </td>
                                         <td className="py-3 px-4 text-brand-text-muted font-sans">
                                             {rec.user || '—'}
@@ -531,7 +334,7 @@ export const HistoryView: React.FC = () => {
                     </table>
                 </div>
                 <div ref={paginationRef}>
-                    {!error && !isLoading && (
+                    {!hasError && !isLoading && (
                         <Pagination
                             currentPage={page}
                             totalPages={totalPages}
