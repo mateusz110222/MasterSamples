@@ -1,4 +1,5 @@
 import { apiRequest, ROUTER_API_BASE, API_BASE, setSessionUser, clearSessionUser } from './client.ts';
+import { AUTH_STORAGE_KEY, postBroadcastMessage } from '../lib/broadcastSync.ts';
 import type { UserInfo, ProcessTagItem, FisTarget } from '../types';
 
 interface UserInfoPayload {
@@ -10,7 +11,7 @@ interface UserInfoPayload {
     canEdit?: unknown;
 }
 
-export const AUTH_STORAGE_KEY = 'master_dashboard_user_session';
+export { AUTH_STORAGE_KEY };
 
 export interface StoredSession {
     user: UserInfo;
@@ -18,57 +19,88 @@ export interface StoredSession {
     expiresAt?: string;
 }
 
-export function saveStoredSession(session: StoredSession): void {
+export function isSessionExpired(expiresAt?: string): boolean {
+    if (!expiresAt) return false;
+    const exp = Date.parse(expiresAt);
+    return Number.isFinite(exp) && exp <= Date.now();
+}
+
+export function applyStoredSession(session: StoredSession | null | undefined): StoredSession | null {
+    if (!session || !session.user) {
+        clearSessionUser();
+        return null;
+    }
+    const normalizedUser: UserInfo = {
+        ...session.user,
+        isGuest: Boolean(session.user.isGuest || !session.user.uid || session.user.name === 'Gość'),
+    };
+    if (isSessionExpired(session.expiresAt)) {
+        clearSessionUser();
+        return null;
+    }
+    if (normalizedUser.uid) {
+        setSessionUser(normalizedUser.uid, normalizedUser.name, normalizedUser.groups);
+    } else {
+        clearSessionUser();
+    }
+    return {
+        ...session,
+        user: normalizedUser,
+    };
+}
+
+export function saveStoredSession(session: StoredSession, options?: { broadcast?: boolean }): void {
+    const normalized = applyStoredSession(session);
+    if (!normalized) return;
     try {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-        if (session.user.uid) {
-            setSessionUser(session.user.uid, session.user.name, session.user.groups);
-        } else {
-            clearSessionUser();
-        }
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(normalized));
     } catch (e) {
         console.warn('Could not save session to localStorage', e);
     }
+    if (options?.broadcast !== false) {
+        postBroadcastMessage({ type: 'auth:session', session: normalized });
+    }
 }
 
-export function loadStoredSession(): StoredSession | null {
+export function loadStoredSession(options?: { broadcastOnExpire?: boolean; readOnly?: boolean }): StoredSession | null {
     try {
         const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as StoredSession;
-        if (!parsed || !parsed.user) {
-            localStorage.removeItem(AUTH_STORAGE_KEY);
+        if (!raw) {
+            clearSessionUser();
             return null;
         }
-        if (!parsed.user.uid || parsed.user.name === 'Gość') {
-            parsed.user.isGuest = true;
-        }
-        if (parsed.expiresAt) {
-            const exp = Date.parse(parsed.expiresAt);
-            if (Number.isFinite(exp) && exp <= Date.now()) {
-                localStorage.removeItem(AUTH_STORAGE_KEY);
-                clearSessionUser();
-                return null;
-            }
-        }
-        if (parsed.user.uid) {
-            setSessionUser(parsed.user.uid, parsed.user.name, parsed.user.groups);
-        } else {
+        const parsed = JSON.parse(raw) as StoredSession;
+        if (!parsed || !parsed.user) {
+            if (!options?.readOnly) localStorage.removeItem(AUTH_STORAGE_KEY);
             clearSessionUser();
+            return null;
         }
-        return parsed;
+        if (isSessionExpired(parsed.expiresAt)) {
+            if (!options?.readOnly) localStorage.removeItem(AUTH_STORAGE_KEY);
+            clearSessionUser();
+            if (options?.broadcastOnExpire && !options.readOnly) {
+                postBroadcastMessage({ type: 'auth:logout' });
+            }
+            return null;
+        }
+        return applyStoredSession(parsed);
     } catch {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
+        try {
+            if (!options?.readOnly) localStorage.removeItem(AUTH_STORAGE_KEY);
+        } catch {}
         clearSessionUser();
         return null;
     }
 }
 
-export function removeStoredSession(): void {
+export function removeStoredSession(options?: { broadcast?: boolean }): void {
     try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
     } catch {}
     clearSessionUser();
+    if (options?.broadcast !== false) {
+        postBroadcastMessage({ type: 'auth:logout' });
+    }
 }
 
 const normalizeProcessTag = (item: unknown): ProcessTagItem => {

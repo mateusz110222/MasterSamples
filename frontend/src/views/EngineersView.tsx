@@ -475,7 +475,7 @@ export const EngineersView: React.FC = () => {
                             disabled={addMailMutation.isPending}
                             className="px-4 py-2 rounded-xl bg-brand-accent hover:bg-brand-accent text-brand-text text-xs font-bold shadow-lg shadow-brand-accent/30 transition-all cursor-pointer"
                         >
-                            {addMailMutation.isPending ? t.saving : 'Dodaj E-mail'}
+                            {addMailMutation.isPending ? t.saving : t.btnAddStandaloneMail}
                         </button>
                     </div>
                 </form>

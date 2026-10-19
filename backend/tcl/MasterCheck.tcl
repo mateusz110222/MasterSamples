@@ -22,7 +22,7 @@ package require Tcl 8.6
 namespace eval ::MasterCheck {
     namespace upvar :: param param
     variable error ""
-    variable dbName "masterSample"
+    set param(dbName) "masterSample"
 
     set initCode [catch {
         uplevel #0 [list source [file join $::_sysvarc(FISVW_DB) config.cfg]]
@@ -147,7 +147,7 @@ namespace eval ::MasterCheck {
             -user     $param(user) \
             -password $param(password) \
             -port     $param(port) \
-            -db       $dbName \
+            -db       $param(dbName) \
             -encoding utf-8]
 
         try {
@@ -487,12 +487,7 @@ namespace eval ::MasterCheck {
                  (mode = 'single' AND station = [_Quote $db $station]) OR
                  (mode = 'prefix' AND station IN ([join $prefixes ,])))"]
         set enabled [_RuleEnabled $rows $station]
-        set source "no matching rule"
-        if {$enabled} { set source "station/prefix rule" }
-        foreach row $rows {
-            if {[lindex $row 0] eq "fis"} { set source "FIS override"; break }
-        }
-        ::Lib::ShowDebug "MasterCheck blocking: fis='$fis', station='$station', enabled=$enabled, source=$source"
+        ::Lib::ShowDebug "MasterCheck blocking: fis='$fis', station='$station', host='$param(host)', port='$param(port)', db='$param(dbName)', enabled=$enabled, rules=$rows"
         return $enabled
     }
 
@@ -530,6 +525,7 @@ namespace eval ::MasterCheck {
 
     proc _Run {operation unit process station {status ""}} {
         variable error
+        variable blockedDir
         global param
         set error ""
         set db ""
@@ -561,7 +557,7 @@ namespace eval ::MasterCheck {
             set blockingEnabled [_BlockingEnabled $db $station]
             if {$blockingEnabled} { _StationPath $station }
 
-            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status'"
+            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status', isMaster=$isMaster, blocking=$blockingEnabled"
 
             if {!$isMaster} {
                 if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { engineerApi } from '../api/engineerApi';
+import { invalidateAndBroadcast } from '../lib/queryCache';
 
 interface EngineerActionCallbacks {
     onMutate: () => void;
@@ -24,8 +25,8 @@ export const useMailsQuery = () => useQuery({
 
 export const useEngineerActions = (callbacks: EngineerActionCallbacks) => {
     const queryClient = useQueryClient();
-    const refreshEngineers = () => queryClient.invalidateQueries({ queryKey: ['engineers'] });
-    const refreshMails = () => queryClient.invalidateQueries({ queryKey: ['mails'] });
+    const refreshEngineers = () => invalidateAndBroadcast(queryClient, [['engineers']]);
+    const refreshMails = () => invalidateAndBroadcast(queryClient, [['mails']]);
     const common = { onMutate: callbacks.onMutate, onError: callbacks.onError };
 
     const updateProcessMutation = useMutation({

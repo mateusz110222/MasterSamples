@@ -1,7 +1,6 @@
 import { formatMessage } from '../lib/templateText';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
 import { fisApi } from '../api/fisApi';
 import { FisTarget, normalizeFisTarget } from '../api/masterApi';
 import type { MasterUnit } from '../types';
@@ -10,6 +9,7 @@ import type { TranslationsType } from '../i18n/LanguageContext';
 import { getErrorMessage } from '../lib/errors';
 import { ApiError } from '../api/client';
 import { refreshMasterData } from '../lib/queryCache';
+import { SELECTED_FIS_STORAGE_KEY, postBroadcastMessage, subscribeBroadcast } from '../lib/broadcastSync';
 import { createMasterWithStructure } from '../lib/createMaster';
 type Feedback = {
     type: 'success' | 'error';
@@ -24,7 +24,6 @@ const usageLimitPresets = [200, 500, 1000, 2000, 5000];
 const errorLimitPresets = [50, 100, 250, 500, 1000];
 
 export const useCreateMaster = () => {
-    const navigate = useNavigate();
     const { t, language } = useLanguage();
     const queryClient = useQueryClient();
     const localizedError = (error: unknown, fallback: string) => {
@@ -51,7 +50,7 @@ export const useCreateMaster = () => {
     const [maxErrors, setMaxErrors] = useState<number>(100);
     const [selectedFis, setSelectedFis] = useState<FisTarget>(() => {
         try {
-            return window.localStorage.getItem('masterSamples.selectedFis') === 'FIS2' ? 'FIS2' : 'FIS1';
+            return window.localStorage.getItem(SELECTED_FIS_STORAGE_KEY) === 'FIS2' ? 'FIS2' : 'FIS1';
         } catch {
             return 'FIS1';
         }
@@ -64,10 +63,11 @@ export const useCreateMaster = () => {
         setSelectedProcesses([]);
         setMultiSearchQuery('');
         try {
-            window.localStorage.setItem('masterSamples.selectedFis', fis);
+            window.localStorage.setItem(SELECTED_FIS_STORAGE_KEY, fis);
         } catch {
             // Selection remains active for the current session when storage is unavailable.
         }
+        postBroadcastMessage({ type: 'fis:change', fis });
     };
 
     // Existing unit update comparison modal
@@ -148,6 +148,17 @@ export const useCreateMaster = () => {
         }
     });
 
+    useEffect(() => {
+        return subscribeBroadcast((message) => {
+            // A preference from another tab must not alter an in-progress submission.
+            if (serialNumber || singleProcess || selectedProcesses.length || assignPn || existingModalData || createMutation.isPending) return;
+            if (message.type === 'fis:change' && message.fis !== selectedFis) {
+                setSelectedFis(message.fis);
+                setMultiSearchQuery('');
+            }
+        });
+    }, [selectedFis, serialNumber, singleProcess, selectedProcesses.length, assignPn, existingModalData, createMutation.isPending]);
+
     const handleSubmit = (e: React.SyntheticEvent, forceUpdate = false) => {
         e.preventDefault();
         setFeedback(null);
@@ -213,7 +224,6 @@ export const useCreateMaster = () => {
         if (!nextChecked) setSelectedPn('');
     };
     const choosePn = (pn: string) => { setSelectedPn(pn); setPnRequiredError(false); };
-    const goToDashboard = () => navigate('/');
     const processErrorMessage = processTagsError ? localizedError(processTagsError, t.processLoadError) : null;
     const pnErrorMessage = pnError ? localizedError(pnError, t.pnLoadError) : null;
     const isMigration = Boolean(existingModalData?.oldData.FIS && existingModalData.newData.FIS && normalizeFisTarget(existingModalData.oldData.FIS) !== normalizeFisTarget(existingModalData.newData.FIS));
@@ -228,7 +238,7 @@ export const useCreateMaster = () => {
     return {
         errorLimitPresets, usageLimitPresets,
         changeSerialNumber, hasSerialNumber, changeMaxCounter, changeMaxErrors, comparisonPn,
-        hasProcessTagsError: Boolean(processTagsError), setPnAssignment, choosePn, goToDashboard, processErrorMessage,
+        hasProcessTagsError: Boolean(processTagsError), setPnAssignment, choosePn, processErrorMessage,
         pnErrorMessage, isMigration, processChoices, serialLengthLabel, selectedProcessesLabel,
         noProcessesLabel, migrationDescription, handleFisChange, feedbackMessage, feedbackStatus,
         filteredMultiTags, createMutation, handleSubmit, toggleMultiProcess, selectAllVisible,

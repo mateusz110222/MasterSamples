@@ -480,11 +480,7 @@ namespace eval ::MasterCheck {
                  (mode = 'single' AND station = [_Quote $db $station]) OR
                  (mode = 'prefix' AND station IN ([join $prefixes ,])))"]
         set enabled [_RuleEnabled $rows $station]
-        set source "no matching rule"
-        if {$enabled} { set source "station/prefix rule" }
-        foreach row $rows {
-            if {[lindex $row 0] eq "fis"} { set source "FIS override"; break }
-        }
+        ::Lib::ShowDebug "MasterCheck blocking: fis='$fis', station='$station', host='$param(host)', port='$param(port)', db='$param(dbName)', enabled=$enabled, rules=$rows"
         return $enabled
     }
 
@@ -548,13 +544,15 @@ namespace eval ::MasterCheck {
             set blockingEnabled [_BlockingEnabled $db $station]
             if {$blockingEnabled} { _StationPath $station }
 
-            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status'"
+            ::Lib::ShowDebug "MasterCheck start: operation=$operation, unit='$unit', process='$process', station='$station', status='$status', isMaster=$isMaster, blocking=$blockingEnabled, lock=[file exists [file join $::MasterCheck::blockedDir ${station}_MASTER]]"
 
             if {!$isMaster} {
                 if {$blockingEnabled && [_ExistingLock [_StationPath $station]]} {
                     set error "Station blocked, master check required"
+                    ::Lib::ShowError "$error (operation=$operation, unit='$unit', process='$process', station='$station')"
                     return 0
                 }
+                ::Lib::ShowDebug "MasterCheck production allowed: operation=$operation, unit='$unit', station='$station', blocking=$blockingEnabled; master counters unchanged"
                 return 1
             }
 

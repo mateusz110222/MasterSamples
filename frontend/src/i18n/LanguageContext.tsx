@@ -1,4 +1,5 @@
-import React, { useState, ReactNode } from 'react';
+import React, { useEffect, useState, ReactNode } from 'react';
+import { LANGUAGE_STORAGE_KEY, postBroadcastMessage, subscribeBroadcast } from '../lib/broadcastSync';
 import { LanguageContext } from './language-context';
 
 export type Language = 'PL' | 'EN';
@@ -274,7 +275,6 @@ const translations = {
         historyFisLink: 'Otwórz historię jednostki w FIS',
 
         // Create Master View
-        backToDashboard: 'Powrót do Dashboardu',
         fisTargetLabel: 'Docelowy serwer FIS',
         fis1Option: 'FIS 1',
         fis2Option: 'FIS 2',
@@ -396,7 +396,6 @@ const translations = {
 
         // Login & Auth
         loginTitle: 'LOGOWANIE',
-        loginSubtitle: 'Domenowe uwierzytelnienie LDAP (Active Directory)',
         loginUsernameLabel: 'Użytkownik domenowy',
         loginUsernamePlaceholder: 'Wpisz identyfikator domenowy (np. jkowalski)',
         loginPasswordLabel: 'Hasło domenowe',
@@ -411,6 +410,7 @@ const translations = {
         loginGuestBtn: 'KONTYNUUJ JAKO GOŚĆ',
         loginGuestReturn: 'WRÓĆ DO DASHBOARDU (TRYB GOŚCIA)',
         loginErrorTitle: 'Błąd logowania',
+        loginErrorDesc: 'Sprawdź identyfikator domenowy oraz hasło i spróbuj ponownie.',
         accessChecking: 'Sprawdzanie uprawnień…',
         logoutBtn: 'Wyloguj',
         guestBadge: 'GOŚĆ',
@@ -685,7 +685,6 @@ const translations = {
         historyFisLink: 'Open unit history in FIS',
 
         // Create Master View
-        backToDashboard: 'Back to Dashboard',
         fisTargetLabel: 'Target FIS server',
         fis1Option: 'FIS 1',
         fis2Option: 'FIS 2',
@@ -807,7 +806,6 @@ const translations = {
 
         // Login & Auth
         loginTitle: 'LOGIN',
-        loginSubtitle: 'Active Directory domain authentication (LDAP)',
         loginUsernameLabel: 'Domain Username',
         loginUsernamePlaceholder: 'Enter domain account (e.g. jdoe)',
         loginPasswordLabel: 'Domain Password',
@@ -822,6 +820,7 @@ const translations = {
         loginGuestBtn: 'CONTINUE AS GUEST',
         loginGuestReturn: 'RETURN TO DASHBOARD (GUEST MODE)',
         loginErrorTitle: 'Login Failed',
+        loginErrorDesc: 'Check your domain username and password and try again.',
         accessChecking: 'Checking permissions…',
         logoutBtn: 'Log Out',
         guestBadge: 'GUEST',
@@ -839,13 +838,36 @@ export interface LanguageContextType {
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [language, setLanguageState] = useState<Language>(() => {
-        const saved = localStorage.getItem('master_samples_lang');
-        return (saved === 'EN' || saved === 'PL') ? saved : 'PL';
+        try {
+            const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+            return (saved === 'EN' || saved === 'PL') ? saved : 'PL';
+        } catch {
+            return 'PL';
+        }
     });
+
+    useEffect(() => {
+        if (typeof document !== 'undefined' && document.documentElement) {
+            document.documentElement.lang = language === 'PL' ? 'pl' : 'en';
+        }
+    }, [language]);
+
+    useEffect(() => {
+        return subscribeBroadcast((message) => {
+            if (message.type === 'lang:change') {
+                setLanguageState(message.language);
+            }
+        });
+    }, []);
 
     const setLanguage = (lang: Language) => {
         setLanguageState(lang);
-        localStorage.setItem('master_samples_lang', lang);
+        try {
+            localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+        } catch {
+            // Keep language active in memory when storage is unavailable
+        }
+        postBroadcastMessage({ type: 'lang:change', language: lang });
     };
 
     const t = translations[language];

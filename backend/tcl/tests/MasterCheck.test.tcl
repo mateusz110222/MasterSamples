@@ -828,6 +828,17 @@ proc ::Test::eiReply {message} {
     ::Test::equals $::Test::updateAttempts 0
     ::Test::checkCleanup
 }
+::Test::run fis2-fts153-prefix-denies-production {
+    set ::param(masterCheckFis) FIS2
+    set ::Test::rules {{FIS2 prefix FTS 0}}
+    ::Test::equals [::MasterCheck::LockStationMaster FTS153] 1
+    ::Test::equals [::MasterCheck::BREQ PRODUCTION FCT FTS153] 0
+    ::Test::equals $error {Station blocked, master check required}
+    ::Test::assert {[file exists [file join $::Test::directory FTS153_MASTER]]}
+    ::Test::assert {[lsearch -glob $::Test::logs {*fis='FIS2'*station='FTS153'*enabled=1*rules={prefix FTS 0}*}] >= 0}
+    ::Test::equals $::Test::updateAttempts 0
+    ::Test::checkCleanup
+}
 ::Test::run exemption-is-scoped-to-fis {
     ::MasterCheck::LockStationMaster CON01
     set ::Test::rules {{FIS2 single CON01 0}}

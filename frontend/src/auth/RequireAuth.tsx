@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useAuth } from './useAuth';
+import { useLanguage } from '../i18n/useLanguage';
 import { Loader2 } from 'lucide-react';
 
 interface RequireAuthProps {
@@ -9,6 +10,7 @@ interface RequireAuthProps {
 
 export const RequireAuth = ({ children }: RequireAuthProps) => {
     const { isAuthenticated, isLoading } = useAuth();
+    const { t } = useLanguage();
     const location = useLocation();
 
     if (isLoading) {
@@ -17,7 +19,7 @@ export const RequireAuth = ({ children }: RequireAuthProps) => {
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 size={28} className="animate-spin text-brand-accent" />
                     <span className="text-xs font-bold uppercase tracking-wider text-brand-text-muted">
-                        Inicjalizacja sesji…
+                        {t.accessChecking}
                     </span>
                 </div>
             </div>

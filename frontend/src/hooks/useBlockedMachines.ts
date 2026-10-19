@@ -5,6 +5,7 @@ import type { BlockedMachine, FisTarget } from '../types';
 import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
 import { getLocalizedErrorMessage } from '../lib/errors';
+import { invalidateAndBroadcast } from '../lib/queryCache';
 const fisTargets: FisTarget[] = ['FIS1', 'FIS2'];
 export const useBlockedMachines = () => {
     const { canEdit } = useAuth();
@@ -33,8 +34,7 @@ export const useBlockedMachines = () => {
         mutationFn: (machine: BlockedMachine) => blockedApi.deleteBlockedMachine(machine.filename, machine.FIS),
         onMutate: () => setActionError(null),
         onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ['blockedMachines'] });
-            void queryClient.invalidateQueries({ queryKey: ['history'] });
+            void invalidateAndBroadcast(queryClient, [['blockedMachines'], ['history']]);
             setDeleteTarget(null);
         },
         onError: (error: unknown) => setActionError(error),

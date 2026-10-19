@@ -7,6 +7,7 @@ import { useLanguage } from '../i18n/useLanguage';
 import { useAuth } from '../auth/useAuth';
 import { getLocalizedErrorMessage } from '../lib/errors';
 import { canEditFisBlocking } from '../lib/permissions';
+import { invalidateAndBroadcast } from '../lib/queryCache';
 import { effectiveStationRule, matchingStations, stationPrefixes } from '../lib/stationRules';
 
 const targets: FisTarget[] = ['FIS1', 'FIS2'];
@@ -40,10 +41,7 @@ export const useStationBlocking = () => {
             return change.action === 'delete' ? stationBlockingApi.remove(change.station, change.fis, change.mode) : stationBlockingApi.set(change.station, change.fis, change.mode, change.disabled);
         },
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['stationBlocking'] }),
-                queryClient.invalidateQueries({ queryKey: ['history'] }),
-            ]);
+            await invalidateAndBroadcast(queryClient, [['stationBlocking'], ['history']]);
             setStation('');
             setPending(null);
         },

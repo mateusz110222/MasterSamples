@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './auth/AuthContext';
@@ -13,6 +13,7 @@ import { LoginView } from './views/LoginView';
 import { RequireAuth } from './auth/RequireAuth';
 import { RequireEdit } from './auth/RequireEdit';
 import { StationBlockingView } from './views/StationBlockingView';
+import { subscribeBroadcast } from './lib/broadcastSync';
 
 const DocumentationView = lazy(() => import('./views/DocumentationView').then(module => ({ default: module.DocumentationView })));
 
@@ -27,6 +28,16 @@ const queryClient = new QueryClient({
 });
 
 export const App: React.FC = () => {
+    useEffect(() => {
+        return subscribeBroadcast((message) => {
+            if (message.type === 'query:invalidate') {
+                message.queryKeys.forEach((queryKey) => {
+                    void queryClient.invalidateQueries({ queryKey });
+                });
+            }
+        });
+    }, []);
+
     return (
         <QueryClientProvider client={queryClient}>
             <LanguageProvider>

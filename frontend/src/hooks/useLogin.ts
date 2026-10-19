@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../auth/useAuth';
 import { useLanguage } from '../i18n/useLanguage';
+import { subscribeBroadcast } from '../lib/broadcastSync';
 
 export const useLogin = () => {
-    const { login, loginAsGuest, isGuest } = useAuth();
+    const { login, loginAsGuest, isGuest, isAuthenticated } = useAuth();
     const { t, language, setLanguage } = useLanguage();
     const navigate = useNavigate();
     const location = useLocation();
+    const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -15,7 +17,19 @@ export const useLogin = () => {
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
+    useEffect(() => {
+        if (isAuthenticated && !isGuest) {
+            navigate(destination, { replace: true });
+            return;
+        }
+        return subscribeBroadcast((message) => {
+            if (message.type === 'auth:logout') {
+                setErrorMessage(null);
+            }
+        });
+    }, [isAuthenticated, isGuest, navigate, destination]);
+
+    const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
         e.preventDefault();
         const trimmedUser = username.trim();
         if (!trimmedUser || !password) return;
@@ -26,12 +40,14 @@ export const useLogin = () => {
         try {
             const res = await login(trimmedUser, password);
             if (!res.status) {
+                setPassword('');
                 setErrorMessage(res.message || '');
             } else {
-                const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
+                setPassword('');
                 navigate(destination, { replace: true });
             }
         } catch (err: unknown) {
+            setPassword('');
             const msg = err instanceof Error ? err.message : '';
             setErrorMessage(msg);
         } finally {
@@ -41,10 +57,8 @@ export const useLogin = () => {
 
     const handleGuestLogin = () => {
         loginAsGuest();
-        const destination = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/';
         navigate(destination, { replace: true });
     };
-
 
     const canSubmit = !loading && Boolean(username.trim()) && Boolean(password);
     return {
@@ -53,3 +67,4 @@ export const useLogin = () => {
         errorMessage, isGuest, t, language, setLanguage,
     };
 };
+

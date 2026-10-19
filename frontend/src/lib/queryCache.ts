@@ -1,7 +1,16 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { postBroadcastMessage } from './broadcastSync.ts';
 
-export const refreshMasterData = (queryClient: QueryClient) => Promise.all([
-    queryClient.invalidateQueries({ queryKey: ['masters'] }),
-    queryClient.invalidateQueries({ queryKey: ['history'] }),
-    queryClient.invalidateQueries({ queryKey: ['unitHistory'] }),
-]);
+export const invalidateAndBroadcast = (
+    queryClient: QueryClient,
+    queryKeys: readonly (readonly unknown[])[],
+) => {
+    postBroadcastMessage({ type: 'query:invalidate', queryKeys });
+    return Promise.all(
+        queryKeys.map(queryKey => queryClient.invalidateQueries({ queryKey })),
+    );
+};
+
+export const refreshMasterData = (queryClient: QueryClient) =>
+    invalidateAndBroadcast(queryClient, [['masters'], ['history'], ['unitHistory']]);
+
